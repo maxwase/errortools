@@ -1,40 +1,33 @@
 use core::{error::Error, fmt};
 
-/// A formatter that outputs the error in a single line concatenated by `:`.
-pub struct FormatOneLine<E>(E);
+use itertools::Itertools;
 
-impl<E> FormatOneLine<E> {
-    pub fn new(error: E) -> Self {
-        FormatOneLine(error)
+use crate::{Format, Formatted, chain};
+
+/// One-line format. Joins the error and its sources with `": "`.
+///
+/// For a different separator (or any per-element formatting), implement
+/// [`Format`] yourself using [`chain`].
+pub struct OneLine;
+
+impl Format for OneLine {
+    fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", chain(error).format(": "))
     }
 }
 
-impl<E: Error> fmt::Display for FormatOneLine<E> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        let mut error = &self.0 as &dyn Error;
-
-        fmt::Display::fmt(error, fmt)?;
-
-        while let Some(source) = error.source() {
-            write!(fmt, ": {source}")?;
-            error = source;
-        }
-        Ok(())
-    }
-}
-
-impl<E: fmt::Debug> fmt::Debug for FormatOneLine<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.0, f)
-    }
-}
+/// One-line error wrapper. Alias for [`Formatted<E, OneLine>`].
+pub type FormatOneLine<E> = Formatted<E, OneLine>;
 
 #[cfg(test)]
 mod tests {
+    use core::fmt;
     use std::io;
 
+    use itertools::Itertools;
+
     use crate::{
-        FormatError,
+        Format, FormatError, Formatted, chain,
         oneline::FormatOneLine,
         tests::{Error, ErrorInner},
     };
@@ -72,5 +65,18 @@ mod tests {
         let error = Error::Four(ErrorInner::Two);
         assert_eq!(error.one_line().to_string(), "Two");
         assert_eq!(format!("{:?}", error.one_line()), "Four(Two)");
+    }
+
+    #[test]
+    fn test_custom_separator_via_format() {
+        struct Arrow;
+        impl Format for Arrow {
+            fn fmt(error: &dyn core::error::Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", chain(error).format(" -> "))
+            }
+        }
+
+        let error = Error::Two(ErrorInner::One);
+        assert_eq!(Formatted::<_, Arrow>::new(error).to_string(), "Two -> One");
     }
 }

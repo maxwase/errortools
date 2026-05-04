@@ -1,10 +1,13 @@
 use core::error::Error;
 use core::fmt;
 
-use super::UserOutput;
+use super::{Format, Formatted, OneLine};
 
-/// A result type that wraps an error with [UserOutput] and [DisplaySwapDebug] to output from the `main` function.
-pub type MainResult<E> = core::result::Result<(), DisplaySwapDebug<UserOutput<E>>>;
+/// A result type that wraps an error with [Formatted] and [DisplaySwapDebug] to output from the `main` function.
+///
+/// The format strategy `F` defaults to [`OneLine`]; pass [`crate::Tree`] or a custom [`Format`]
+/// to change how the error is rendered when `main` returns `Err`.
+pub type MainResult<E, F = OneLine> = core::result::Result<(), DisplaySwapDebug<Formatted<E, F>>>;
 
 #[derive(Copy, Clone)]
 pub struct DisplaySwapDebug<E>(E);
@@ -33,9 +36,9 @@ impl<D: fmt::Display> fmt::Debug for DisplaySwapDebug<D> {
     }
 }
 
-impl<E: Error> From<E> for DisplaySwapDebug<UserOutput<E>> {
+impl<E: Error, F: Format> From<E> for DisplaySwapDebug<Formatted<E, F>> {
     fn from(value: E) -> Self {
-        DisplaySwapDebug::new(UserOutput::new(value))
+        DisplaySwapDebug::new(Formatted::new(value))
     }
 }
 
@@ -78,7 +81,10 @@ mod tests {
         );
 
         assert_eq!(
-            DisplaySwapDebug::new(&DisplaySwapDebug::new(UserOutput::new(Error::One))).to_string(),
+            DisplaySwapDebug::new(&DisplaySwapDebug::new(Formatted::<_, OneLine>::new(
+                Error::One
+            )))
+            .to_string(),
             "One"
         );
     }
