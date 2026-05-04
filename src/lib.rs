@@ -14,6 +14,9 @@ pub use tree::{Tree, TreeIndent, TreeMarker};
 ///
 /// Implement on a unit type to define a custom format. Use [`chain`] to walk
 /// the error and its sources.
+/// We cannot rely on `fmt::*` traits because:
+/// 1. They have accept &self
+/// 1. `Error` is already bound by it
 pub trait Format {
     fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
