@@ -8,6 +8,7 @@ use crate::{Format, Formatted, chain};
 ///
 /// For a different separator (or any per-element formatting), implement
 /// [`Format`] yourself using [`chain`].
+#[derive(Debug)]
 pub struct OneLine;
 
 impl Format for OneLine {

@@ -8,7 +8,7 @@ mod tree;
 
 pub use main_result::MainResult;
 pub use oneline::{FormatOneLine, OneLine};
-pub use tree::Tree;
+pub use tree::{Tree, TreeIndent, TreeMarker};
 
 /// A static strategy for formatting an error and its source chain.
 ///
