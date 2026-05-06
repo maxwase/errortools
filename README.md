@@ -1,4 +1,4 @@
-# error-details
+# errortools
 
 Tired of writing this in every project?
 
