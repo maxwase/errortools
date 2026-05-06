@@ -1,8 +1,17 @@
 [package]
 name = "errortools"
+authors = ["Max Wase <max.vvase@gmail.com>"]
 version = "0.1.0"
 edition = "2024"
+description = "Quality of life utilities for error handling in Rust."
+repository = "https://github.com/maxwase/errortools"
+license = "MIT"
+readme = "README.md"
+keywords = ["error", "main", "thiserror", "format", "chain"]
+categories = ["rust-patterns", "command-line-interface"]
 
 [dependencies]
-thiserror = "2"
 itertools = "0.14"
+
+[dev-dependencies]
+thiserror = "2"
