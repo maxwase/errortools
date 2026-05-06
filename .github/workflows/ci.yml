@@ -11,29 +11,47 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  test:
-    name: fmt, clippy, test
+  fmt:
+    name: fmt
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt
+      - run: cargo fmt --all --check
 
+  doc:
+    name: doc
+    runs-on: ubuntu-24.04-arm
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.9.1
+        with:
+          key: doc
+      - run: cargo doc --all-features --no-deps
 
-      - name: cargo fmt
-        run: cargo fmt --all --check
-
+  check:
+    name: clippy + test (${{ matrix.features }})
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - --all-features
+          - --no-default-features
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2.9.1
+        with:
+          key: ${{ matrix.features }}
       - name: cargo clippy
-        run: cargo clippy --all-targets --all-features --tests -- -D warnings
-
+        run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
       - name: cargo test
-        run: cargo test --all-targets --all-features
-
-      - name: cargo doc
-        run: cargo doc --all-features --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
+        run: cargo test ${{ matrix.features }}

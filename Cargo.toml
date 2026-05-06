@@ -11,7 +11,12 @@ keywords = ["error", "main", "thiserror", "format", "chain"]
 categories = ["rust-patterns", "command-line-interface"]
 
 [dependencies]
-itertools = "0.14"
+itertools = { version = "0.14", default-features = false }
 
 [dev-dependencies]
 thiserror = "2"
+
+
+[features]
+default = ["std"]
+std = ["itertools/use_std"]

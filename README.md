@@ -2,7 +2,7 @@
 
 Tired of writing this in every project?
 
-```rust
+```rust,ignore
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e}");
@@ -10,7 +10,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<(), MyError> { /* ... */ }
+fn run() -> Result<(), MyError> { todo!() }
 ```
 
 Because returning `Result` from `main` uses `Debug`, which gives you this:
@@ -23,8 +23,8 @@ We have a solution: **`MainResult`**.
 
 ## Example
 
-```rust
-use error_details::MainResult;
+```rust,no_run
+use errortools::MainResult;
 use std::{fs, io};
 
 #[derive(Debug, thiserror::Error)]
@@ -34,7 +34,7 @@ enum Error {
 }
 
 fn main() -> MainResult<Error> {
-    let _ = fs::read_to_string("missing.toml").map_err(Config::Error)?;
+    fs::read_to_string("missing.toml").map_err(Error::Config)?;
     Ok(())
 }
 ```
@@ -51,11 +51,18 @@ The error and its full source chain are joined with `": "` — no boilerplate, n
 
 Prefer a multi-line view? Swap the format strategy:
 
-```rust
-use error_details::{MainResult, Tree};
+```rust,no_run
+use errortools::{MainResult, Tree};
+use std::{fs, io};
+
+#[derive(Debug, thiserror::Error)]
+enum AppError {
+    #[error("failed to load config")]
+    Config(#[from] io::Error),
+}
 
 fn main() -> MainResult<AppError, Tree> {
-    let _ = std::fs::read_to_string("missing.toml")?;
+    let _ = fs::read_to_string("missing.toml").map_err(AppError::from)?;
     Ok(())
 }
 ```
@@ -69,10 +76,10 @@ Error: failed to load config
 
 The `FormatError` extension trait works on any error:
 
-```rust
-use error_details::FormatError;
+```rust,ignore
+use errortools::FormatError;
 
-let e: &dyn std::error::Error = &my_error;
+let e: &dyn core::error::Error = &my_error;
 eprintln!("{}", e.one_line());
 eprintln!("{}", e.tree());
 ```
@@ -81,9 +88,9 @@ eprintln!("{}", e.tree());
 
 Implement the `Format` trait on a unit type:
 
-```rust
+```rust,ignore
 use core::{error::Error, fmt};
-use error_details::{Format, FormatError, chain};
+use errortools::{Format, FormatError, chain};
 use itertools::Itertools;
 
 struct Arrow;
@@ -101,6 +108,8 @@ println!("{}", my_error.formatted::<Arrow>()); // outer -> middle -> inner
 `MainResult<E, F>` is a type alias:
 
 ```rust
+use errortools::{DisplaySwapDebug, Formatted, OneLine};
+
 pub type MainResult<E, F = OneLine> = Result<(), DisplaySwapDebug<Formatted<E, F>>>;
 ```
 

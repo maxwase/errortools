@@ -1,4 +1,5 @@
-// #![doc = include_str!("../README.md")]
+#![doc = include_str!("../README.md")]
+#![cfg_attr(not(any(feature = "std", test)), no_std)]
 
 use core::{error::Error, fmt, iter, marker::PhantomData};
 
@@ -6,7 +7,7 @@ mod main_result;
 mod oneline;
 mod tree;
 
-pub use main_result::MainResult;
+pub use main_result::{DisplaySwapDebug, MainResult};
 pub use oneline::{FormatOneLine, OneLine};
 pub use tree::{Tree, TreeIndent, TreeMarker};
 
@@ -49,7 +50,7 @@ pub trait FormatError {
 
 impl<E: Error + ?Sized> FormatError for E {}
 
-/// An error wrapper that uses a static [`Format`] strategy for [`Display`].
+/// An error wrapper that uses a static [`Format`] strategy for [`fmt::Display`].
 pub struct Formatted<E, F: Format = OneLine>(E, PhantomData<F>);
 
 impl<E, F: Format> Formatted<E, F> {
