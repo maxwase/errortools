@@ -1,5 +1,8 @@
 # errortools
 
+[![crates](https://img.shields.io/crates/v/errortools?style=for-the-badge)](https://crates.io/crates/errortools)
+[![doc](https://img.shields.io/docsrs/errortools?style=for-the-badge)](https://docs.rs/errortools/latest/)
+
 Tired of writing this in every project?
 
 ```rust,ignore
@@ -58,11 +61,11 @@ use std::{fs, io};
 #[derive(Debug, thiserror::Error)]
 enum AppError {
     #[error("failed to load config")]
-    Config(#[from] io::Error),
+    Config(#[source] io::Error),
 }
 
 fn main() -> MainResult<AppError, Tree> {
-    let _ = fs::read_to_string("missing.toml").map_err(AppError::from)?;
+    let _ = fs::read_to_string("missing.toml").map_err(AppError::Config)?;
     Ok(())
 }
 ```
@@ -72,16 +75,31 @@ Error: failed to load config
 └── No such file or directory (os error 2)
 ```
 
-## Use with `&dyn Error`
+## Logging in place
 
-The `FormatError` extension trait works on any error:
+Sometimes you cannot return and need to log the full source chain right where
+the error happens. The `FormatError` extension trait works on any error:
 
 ```rust,ignore
 use errortools::FormatError;
 
-let e: &dyn core::error::Error = &my_error;
-eprintln!("{}", e.one_line());
-eprintln!("{}", e.tree());
+if let Err(e) = do_thing() {
+    tracing::error!("do_thing failed: {}", e.one_line());
+    // do_thing failed: outer: middle: inner
+}
+```
+
+For ad-hoc strategies, pick the format inline with `formatted::<F>()`:
+
+```rust,ignore
+use errortools::{FormatError, Tree};
+
+if let Err(e) = do_thing() {
+    eprintln!("{}", e.formatted::<Tree>());
+    // outer
+    // └── middle
+    //     └── inner
+}
 ```
 
 ## Custom formats
@@ -114,3 +132,23 @@ pub type MainResult<E, F = OneLine> = Result<(), DisplaySwapDebug<Formatted<E, F
 ```
 
 `DisplaySwapDebug` swaps the `Debug` and `Display` impls of its inner type, so when `main` prints the error via `Debug`, you actually get its `Display` output — formatted by the chosen strategy. `?` converts your error automatically via the blanket `From` impl.
+
+## Examples
+
+Runnable examples in [`examples/`](https://github.com/maxwase/errortools/tree/master/examples):
+
+| Example | What it shows |
+|---|---|
+| [`one_line`](https://github.com/maxwase/errortools/blob/master/examples/one_line.rs) | `MainResult` with default `OneLine` format |
+| [`tree`](https://github.com/maxwase/errortools/blob/master/examples/tree.rs) | `MainResult<E, Tree>` for indented multi-line output |
+| [`format_error`](https://github.com/maxwase/errortools/blob/master/examples/format_error.rs) | `FormatError` trait for ad-hoc formatting |
+| [`custom_format`](https://github.com/maxwase/errortools/blob/master/examples/custom_format.rs) | A custom `Format` strategy |
+| [`transparent`](https://github.com/maxwase/errortools/blob/master/examples/transparent.rs) | `#[error(transparent)]` pass-through with `#[from]` |
+
+Run with: `cargo run --example <name>`.
+
+## Features
+
+| Feature | Default | Effect |
+|---|---|---|
+| `std` | yes | Enables `itertools/use_std`. Disable for `no_std`. |

@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(not(any(feature = "std", test)), no_std)]
+#![warn(missing_docs)]
 
 use core::{error::Error, fmt, iter, marker::PhantomData};
 
@@ -19,6 +20,7 @@ pub use tree::{Tree, TreeIndent, TreeMarker};
 /// 1. They have accept &self
 /// 1. `Error` is already bound by it
 pub trait Format {
+    /// Writes `error` and its source chain to `f` using the strategy.
     fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
@@ -51,33 +53,34 @@ pub trait FormatError {
 impl<E: Error + ?Sized> FormatError for E {}
 
 /// An error wrapper that uses a static [`Format`] strategy for [`fmt::Display`].
-pub struct Formatted<E, F: Format = OneLine>(E, PhantomData<F>);
+///
+/// `F` is a type-level tag (never instantiated). The `fn() -> F` inside
+/// [`PhantomData`] avoids drop-check ownership of `F` and makes the wrapper
+/// `Send + Sync` regardless of `F`.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Formatted<E, F = OneLine>(E, PhantomData<fn() -> F>);
 
 impl<E, F: Format> Formatted<E, F> {
+    /// Wraps `error` so its `Display` impl uses the [`Format`] strategy `F`.
     pub fn new(error: E) -> Self {
         Formatted(error, PhantomData)
     }
 }
 
+/// Renders the wrapped error via the strategy `F`.
 impl<E: Error, F: Format> fmt::Display for Formatted<E, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         F::fmt(&self.0, f)
     }
 }
 
-impl<E: fmt::Debug, F: Format> fmt::Debug for Formatted<E, F> {
+/// Forwards to the inner error's `Debug` rather than printing
+/// `Formatted(.., PhantomData)`. Keeps `{:?}` output of wrapped errors readable.
+impl<E: fmt::Debug, F> fmt::Debug for Formatted<E, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&self.0, f)
     }
 }
-
-impl<E: Clone, F: Format> Clone for Formatted<E, F> {
-    fn clone(&self) -> Self {
-        Formatted(self.0.clone(), PhantomData)
-    }
-}
-
-impl<E: Copy, F: Format> Copy for Formatted<E, F> {}
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -87,6 +90,29 @@ pub(crate) mod tests {
 
     use super::*;
 
+    fn _assert_derive_traits() {
+        #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug)]
+        struct DummyError;
+        impl fmt::Display for DummyError {
+            fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+                Ok(())
+            }
+        }
+        impl core::error::Error for DummyError {}
+
+        fn assert_all<
+            T: Clone + Copy + Default + PartialEq + Eq + core::hash::Hash + Send + Sync,
+        >() {
+        }
+        assert_all::<Formatted<DummyError, OneLine>>();
+        assert_all::<Formatted<DummyError, Tree>>();
+        assert_all::<DisplaySwapDebug<DummyError>>();
+        assert_all::<OneLine>();
+        assert_all::<TreeMarker>();
+        assert_all::<TreeIndent>();
+        assert_all::<Tree>();
+    }
+
     #[derive(Error, Debug)]
     pub enum Error {
         #[error("One")]
@@ -94,7 +120,7 @@ pub(crate) mod tests {
         #[error("Two")]
         Two(#[source] ErrorInner),
         #[error("Three")]
-        Three(#[from] io::Error),
+        Three(#[source] io::Error),
         #[error(transparent)]
         Four(#[from] ErrorInner),
     }

@@ -5,9 +5,10 @@ use itertools::Itertools;
 use crate::{Format, chain};
 
 /// Default tree branch marker: `"└── "`.
-#[derive(Default, Debug)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TreeMarker;
 
+/// Writes the literal `"└── "`.
 impl fmt::Display for TreeMarker {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("└── ")
@@ -15,9 +16,10 @@ impl fmt::Display for TreeMarker {
 }
 
 /// Default tree indent: four spaces.
-#[derive(Default, Debug)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TreeIndent;
 
+/// Writes four spaces.
 impl fmt::Display for TreeIndent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("    ")
@@ -36,9 +38,12 @@ impl fmt::Display for TreeIndent {
 /// indent (four spaces by default) is repeated `depth - 1` times. Any types
 /// implementing [`Display`](fmt::Display) and [`Default`] can be substituted
 /// to customize the rendering.
-#[derive(Debug)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Tree<M = TreeMarker, I = TreeIndent>(PhantomData<fn() -> (M, I)>);
 
+/// Walks the source chain. Prints the top error on its own line, then each
+/// source on a new line preceded by `(depth - 1)` repetitions of `I` followed
+/// by `M`.
 impl<M, I> Format for Tree<M, I>
 where
     M: fmt::Display + Default,
@@ -61,6 +66,17 @@ where
     }
 }
 
+/// Prints the marker/indent values (instantiated via [`Default`]) instead of
+/// `Tree(PhantomData)`.
+impl<M: fmt::Debug + Default, I: fmt::Debug + Default> fmt::Debug for Tree<M, I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Tree")
+            .field(&M::default())
+            .field(&I::default())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::fmt;
@@ -68,7 +84,7 @@ mod tests {
     use itertools::Itertools;
 
     use crate::{
-        Format, FormatError, Formatted, Tree, chain,
+        Format, FormatError, Formatted, Tree, TreeIndent, TreeMarker, chain,
         tests::{Error, ErrorInner},
     };
 
@@ -113,6 +129,28 @@ mod tests {
             Formatted::<_, Tree<Arrow, TwoSpace>>::new(error).to_string(),
             "Two\n|-> One"
         );
+    }
+
+    #[test]
+    fn test_tree_marker_debug() {
+        assert_eq!(format!("{:?}", TreeMarker), "TreeMarker");
+        assert_eq!(format!("{:?}", TreeIndent), "TreeIndent");
+    }
+
+    #[test]
+    fn test_tree_debug_default_params() {
+        let tree = Tree::<TreeMarker, TreeIndent>::default();
+        assert_eq!(format!("{tree:?}"), "Tree(TreeMarker, TreeIndent)");
+    }
+
+    #[test]
+    fn test_tree_debug_custom_params() {
+        #[derive(Debug, Default)]
+        struct Arrow;
+        #[derive(Debug, Default)]
+        struct TwoSpace;
+        let tree = Tree::<Arrow, TwoSpace>::default();
+        assert_eq!(format!("{tree:?}"), "Tree(Arrow, TwoSpace)");
     }
 
     #[test]

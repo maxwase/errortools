@@ -8,9 +8,10 @@ use crate::{Format, Formatted, chain};
 ///
 /// For a different separator (or any per-element formatting), implement
 /// [`Format`] yourself using [`chain`].
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct OneLine;
 
+/// Walks the source chain and joins each error's `Display` output with `": "`.
 impl Format for OneLine {
     fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", chain(error).format(": "))

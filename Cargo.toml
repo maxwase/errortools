@@ -5,17 +5,19 @@ version = "0.1.0"
 edition = "2024"
 description = "Quality of life utilities for error handling in Rust."
 repository = "https://github.com/maxwase/errortools"
+homepage = "https://github.com/maxwase/errortools"
+documentation = "https://docs.rs/errortools"
 license = "MIT"
 readme = "README.md"
 keywords = ["error", "main", "thiserror", "format", "chain"]
-categories = ["rust-patterns", "command-line-interface"]
+categories = ["rust-patterns", "command-line-interface", "no-std"]
+include = ["src/**/*.rs", "examples/**/*.rs", "README.md", "CHANGELOG.md", "LICENSE*"]
 
 [dependencies]
 itertools = { version = "0.14", default-features = false }
 
 [dev-dependencies]
 thiserror = "2"
-
 
 [features]
 default = ["std"]
