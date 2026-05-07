@@ -1,6 +1,6 @@
 ---
 name: errortools
-description: Use when writing or refactoring Rust error-handling code — covers idiomatic source-chain design with `thiserror` and ad-hock error logging.
+description: Use when writing or refactoring Rust error-handling code — covers idiomatic source-chain design with `thiserror` and ad-hoc error logging.
 ---
 
 # Rust error-handling skill
