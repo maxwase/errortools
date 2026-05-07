@@ -1,0 +1,23 @@
+{
+  "name": "rust-error-handling",
+  "description": "Rust error-handling guidance built around errortools and thiserror crates (MainResult, FormatError, custom Format strategies)",
+  "version": "0.1.0",
+  "author": {
+    "name": "Max Wase",
+    "email": "max.vvase@gmail.com"
+  },
+  "homepage": "https://github.com/maxwase/errortools",
+  "repository": "https://github.com/maxwase/errortools",
+  "license": "MIT",
+  "keywords": [
+    "rust",
+    "error",
+    "thiserror",
+    "main",
+    "format",
+    "chain",
+    "source",
+    "handling"
+  ],
+  "$schema": "https://www.schemastore.org/claude-code-plugin-manifest.json"
+}
