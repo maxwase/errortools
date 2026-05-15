@@ -7,7 +7,9 @@ use super::{Format, Formatted, OneLine};
 ///
 /// The format strategy `F` defaults to [`OneLine`]; pass [`crate::Tree`] or a custom [`Format`]
 /// to change how the error is rendered when `main` returns `Err`.
-pub type MainResult<E, F = OneLine> = core::result::Result<(), DisplaySwapDebug<Formatted<E, F>>>;
+/// The success type `T` defaults to `()`; pass `ExitCode` or another type to return from `main`.
+pub type MainResult<E, F = OneLine, T = ()> =
+    core::result::Result<T, DisplaySwapDebug<Formatted<E, F>>>;
 
 /// Wrapper that swaps an inner type's [`fmt::Debug`] and [`fmt::Display`] impls.
 ///
@@ -110,5 +112,20 @@ mod tests {
             .to_string(),
             "One"
         );
+    }
+
+    #[test]
+    fn test_main_result_with_exit_code() {
+        use std::process::ExitCode;
+
+        fn main_with_error(err: bool) -> MainResult<Error, OneLine, ExitCode> {
+            if err {
+                return Err(Error::One)?;
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+
+        assert_eq!(main_with_error(false).unwrap(), ExitCode::SUCCESS);
+        assert_eq!(main_with_error(true).unwrap_err().0.to_string(), "One");
     }
 }
