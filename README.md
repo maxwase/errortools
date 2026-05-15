@@ -128,7 +128,7 @@ println!("{}", my_error.formatted::<Arrow>()); // outer -> middle -> inner
 ```rust
 use errortools::{DisplaySwapDebug, Formatted, OneLine};
 
-pub type MainResult<E, F = OneLine> = Result<(), DisplaySwapDebug<Formatted<E, F>>>;
+pub type MainResult<E, F = OneLine, T = ()> = Result<T, DisplaySwapDebug<Formatted<E, F>>>;
 ```
 
 `DisplaySwapDebug` swaps the `Debug` and `Display` impls of its inner type, so when `main` prints the error via `Debug`, you actually get its `Display` output — formatted by the chosen strategy. `?` converts your error automatically via the blanket `From` impl.
