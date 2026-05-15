@@ -2,7 +2,7 @@ use core::{error::Error, fmt};
 
 use itertools::Itertools;
 
-use crate::{Format, Formatted, chain};
+use crate::{Format, chain};
 
 /// One-line format. Joins the error and its sources with `": "`.
 ///
@@ -18,9 +18,6 @@ impl Format for OneLine {
     }
 }
 
-/// One-line error wrapper. Alias for [`Formatted<E, OneLine>`].
-pub type FormatOneLine<E> = Formatted<E, OneLine>;
-
 #[cfg(test)]
 mod tests {
     use core::fmt;
@@ -29,8 +26,7 @@ mod tests {
     use itertools::Itertools;
 
     use crate::{
-        Format, FormatError, Formatted, chain,
-        oneline::FormatOneLine,
+        Format, FormatError, Formatted, OneLine, chain,
         tests::{Error, ErrorInner},
     };
 
@@ -48,7 +44,7 @@ mod tests {
         let error = Error::One;
         assert_eq!(error.one_line().to_string(), "One");
         assert_eq!(format!("{:?}", error.one_line()), "One");
-        assert_eq!(FormatOneLine::new(Error::One).to_string(), "One");
+        assert_eq!(Formatted::<_, OneLine>::new(Error::One).to_string(), "One");
 
         let error = Error::Two(ErrorInner::One);
         assert_eq!(error.one_line().to_string(), "Two: One");

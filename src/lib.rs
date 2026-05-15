@@ -9,7 +9,7 @@ mod oneline;
 mod tree;
 
 pub use main_result::{DisplaySwapDebug, MainResult};
-pub use oneline::{FormatOneLine, OneLine};
+pub use oneline::OneLine;
 pub use tree::{Tree, TreeIndent, TreeMarker};
 
 /// A static strategy for formatting an error and its source chain.
@@ -35,13 +35,13 @@ pub fn chain<'a>(error: &'a dyn Error) -> impl Iterator<Item = &'a dyn Error> + 
 /// A helper trait to format errors.
 pub trait FormatError {
     /// Formats the error in a single line concatenated by `: `.
-    fn one_line(&self) -> FormatOneLine<&Self> {
-        FormatOneLine::new(self)
+    fn one_line(&self) -> Formatted<&Self, OneLine> {
+        self.formatted::<OneLine>()
     }
 
     /// Formats the error as an indented tree of sources.
     fn tree(&self) -> Formatted<&Self, Tree> {
-        Formatted::new(self)
+        self.formatted::<Tree>()
     }
 
     /// Formats the error using a custom [`Format`] strategy.

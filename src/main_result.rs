@@ -120,7 +120,7 @@ mod tests {
 
         fn main_with_error(err: bool) -> MainResult<Error, OneLine, ExitCode> {
             if err {
-                return Err(Error::One)?;
+                Err(Error::One)?;
             }
             Ok(ExitCode::SUCCESS)
         }
