@@ -51,7 +51,7 @@ impl<D: fmt::Display> fmt::Debug for DisplaySwapDebug<D> {
     }
 }
 
-impl<E: Error, F: Format> From<E> for DisplaySwapDebug<Formatted<E, F>> {
+impl<E: Error, F: Format<E>> From<E> for DisplaySwapDebug<Formatted<E, F>> {
     fn from(value: E) -> Self {
         DisplaySwapDebug::new(Formatted::new(value))
     }

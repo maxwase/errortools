@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `WithContext<C, E, F>` — tag any error with a context value (path, attempt number, etc.). `Colon` is the default strategy; `PathColon` handles
+  `Path`/`PathBuf` directly without a newtype. `WithPath<C, E>` aliases the path case. The wrapper's `Error::source` skips its inner error so chain walkers don't print it twice.
+- `Suggest` trait for per-variant "Did you mean…" hints, and the `Suggestion` `Format` strategy that renders them. `error.suggestion()` prints the top-level hint via `Display`. Default `Suggest::fmt` writes nothing, so types only implement it for variants that have a hint.
+- `DisplayPath` wrapper in the `path_display` module — drops `&Path`/`PathBuf` into any `Display` context.
+- `T` generic on `MainResult<E, F, T = ()>` so `main` can return `ExitCode` or any `Termination` type.
+
+### Changed
+
+- **Breaking:** `Format` is now `Format<E: Error + ?Sized>` with
+  `fn fmt(error: &E, ...)`. The old `&dyn Error` signature is gone. Custom
+  strategies need to add the `<E>` parameter. The motivation: a strategy can
+  now require extra bounds on `E` (the `Suggestion` strategy needs
+  `E: Suggest`, which doesn't survive type erasure). See
+  `examples/custom_format.rs` for the new shape.
+
+### Removed
+
+- **Breaking:** `FormatOneLine` type alias. Use `Formatted<E, OneLine>`.
+
 ## [0.1.0] - 2025-01-01
 
 ### Added

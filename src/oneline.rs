@@ -12,9 +12,9 @@ use crate::{Format, chain};
 pub struct OneLine;
 
 /// Walks the source chain and joins each error's `Display` output with `": "`.
-impl Format for OneLine {
-    fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", chain(error).format(": "))
+impl<E: Error + ?Sized> Format<E> for OneLine {
+    fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", chain(&error).format(": "))
     }
 }
 
@@ -68,9 +68,9 @@ mod tests {
     #[test]
     fn test_custom_separator_via_format() {
         struct Arrow;
-        impl Format for Arrow {
-            fn fmt(error: &dyn core::error::Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "{}", chain(error).format(" -> "))
+        impl<E: core::error::Error + ?Sized> Format<E> for Arrow {
+            fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", chain(&error).format(" -> "))
             }
         }
 

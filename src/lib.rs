@@ -12,6 +12,7 @@ mod main_result;
 mod oneline;
 #[cfg(feature = "std")]
 pub mod path_display;
+mod suggestion;
 mod tree;
 pub mod with_context;
 
@@ -19,19 +20,27 @@ pub use main_result::{DisplaySwapDebug, MainResult};
 pub use oneline::OneLine;
 #[cfg(feature = "std")]
 pub use path_display::DisplayPath;
+pub use suggestion::{Suggest, Suggestion};
 pub use tree::{Tree, TreeIndent, TreeMarker};
 pub use with_context::WithContext;
 
 /// A static strategy for formatting an error and its source chain.
 ///
-/// Implement on a unit type to define a custom format. Use [`chain`] to walk
-/// the error and its sources.
+/// The strategy is parameterized over the error type `E` so each strategy can declare its own bounds:
+/// [`OneLine`] and [`Tree`] accept any `E: Error`,
+/// while strategies like [`Suggestion`](crate::Suggestion) additionally require [`Suggestion`] on `E`.
+///
+/// Use [`chain`] to walk the error and its sources.
+///
 /// We cannot rely on `fmt::*` traits because:
-/// 1. They have accept &self
+/// 1. They accept &self
 /// 1. `Error` is already bound by it
-pub trait Format {
+///
+/// In theory, the [Error] bound can be removed, but it would create confusion when implementing custom strategies,
+/// so it's better to keep it.
+pub trait Format<E: Error + ?Sized> {
     /// Writes `error` and its source chain to `f` using the strategy.
-    fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+    fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
 /// Iterator over an error and its source chain.
@@ -54,8 +63,17 @@ pub trait FormatError {
         self.formatted::<Tree>()
     }
 
+    /// Renders the error's [`Suggestion`] hint. Only the top-level error is
+    /// printed; the source chain is not walked.
+    fn suggestion(&self) -> Formatted<&Self, Suggestion>
+    where
+        Self: Suggest,
+    {
+        self.formatted::<Suggestion>()
+    }
+
     /// Formats the error using a custom [`Format`] strategy.
-    fn formatted<F: Format>(&self) -> Formatted<&Self, F> {
+    fn formatted<F>(&self) -> Formatted<&Self, F> {
         Formatted::new(self)
     }
 }
@@ -70,15 +88,15 @@ impl<E: Error + ?Sized> FormatError for E {}
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Formatted<E, F = OneLine>(E, PhantomData<fn() -> F>);
 
-impl<E, F: Format> Formatted<E, F> {
+impl<E, F> Formatted<E, F> {
     /// Wraps `error` so its `Display` impl uses the [`Format`] strategy `F`.
-    pub fn new(error: E) -> Self {
+    pub const fn new(error: E) -> Self {
         Formatted(error, PhantomData)
     }
 }
 
 /// Renders the wrapped error via the strategy `F`.
-impl<E: Error, F: Format> fmt::Display for Formatted<E, F> {
+impl<E: Error, F: Format<E>> fmt::Display for Formatted<E, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         F::fmt(&self.0, f)
     }
@@ -185,8 +203,8 @@ pub(crate) mod tests {
     #[test]
     fn test_custom_format() {
         struct Upper;
-        impl Format for Upper {
-            fn fmt(error: &dyn core::error::Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        impl<E: core::error::Error + ?Sized> Format<E> for Upper {
+            fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "{}", error.to_string().to_uppercase())
             }
         }

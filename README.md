@@ -164,7 +164,7 @@ if let Err(e) = do_thing() {
 
 ## Custom formats
 
-Implement the `Format` trait on a unit type:
+Implement the `Format<E>` trait on a unit type. `E` is generic so your strategy can require extra bounds on the error type (e.g. `Suggest` for the suggestion strategy):
 
 ```rust,ignore
 use core::{error::Error, fmt};
@@ -172,14 +172,49 @@ use errortools::{Format, FormatError, chain};
 use itertools::Itertools;
 
 struct Arrow;
-impl Format for Arrow {
-    fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", chain(error).format(" -> "))
+impl<E: Error + ?Sized> Format<E> for Arrow {
+    fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", chain(&error).format(" -> "))
     }
 }
 
 println!("{}", my_error.formatted::<Arrow>()); // outer -> middle -> inner
 ```
+
+## Suggestions
+
+For "Did you mean…" hints, implement `Suggest` on your error type and call
+`error.suggestion()`:
+
+```rust,ignore
+use core::fmt;
+use errortools::{FormatError, Suggest};
+
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error("Config file missing")]
+    NoConfig,
+    #[error("Network down")]
+    Network,
+}
+
+impl Suggest for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoConfig => f.write_str("Did you copy config.example.toml to config.toml?"),
+            Self::Network => Ok(()),
+        }
+    }
+}
+
+eprintln!("{}\n{}", Error::NoConfig.one_line(), Error::NoConfig.suggestion());
+// Config file missing
+// Did you copy config.example.toml to config.toml?
+```
+
+Only the top-level error's hint is printed, the source chain isn't walked. This decision is intentional: The underlying hint may be irrelevant in the context of the top-level error, and printing it may just add noise.
+
+The idea is that every error that is supposed to have a suggestion should implement `Suggest` and then later the top-level error's suggestion may concatenate the inner hint if it's relevant with nesting matching the error chain.
 
 ## How it works
 

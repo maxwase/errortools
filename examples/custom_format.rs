@@ -12,9 +12,9 @@ use itertools::Itertools;
 
 struct Arrow;
 
-impl Format for Arrow {
-    fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", chain(error).format(" -> "))
+impl<E: Error + ?Sized> Format<E> for Arrow {
+    fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", chain(&error).format(" -> "))
     }
 }
 
