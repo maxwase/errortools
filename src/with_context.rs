@@ -7,6 +7,12 @@ use core::{
 };
 
 pub use crate::with_context::format::{Colon, ContextFormat, WithContextColon};
+#[cfg(feature = "std")]
+pub use crate::with_context::format::{PathColon, WithContextPathColon};
+
+/// Convenience alias for [`WithContext`] with the default [`PathColon`] strategy.
+#[cfg(feature = "std")]
+pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 
 /// A context value paired with an error, rendered through a static
 /// [`ContextFormat`] strategy.
@@ -15,13 +21,9 @@ pub use crate::with_context::format::{Colon, ContextFormat, WithContextColon};
 /// source (skipping `error` itself, since the strategy already prints it), so
 /// chain-walking strategies don't duplicate it.
 ///
-/// `F` is a type-level tag (never instantiated). The `fn() -> F` inside
-/// [`PhantomData`] avoids drop-check ownership of `F` and keeps the wrapper
-/// `Send + Sync` regardless of `F`.
-///
 /// # Example
 /// ```
-/// use errortools::{FormatError, WithContextColon};
+/// use errortools::{FormatError, with_context::WithContextColon};
 /// use std::io;
 ///
 /// let err = io::Error::new(io::ErrorKind::NotFound, "file missing");
@@ -32,17 +34,17 @@ pub use crate::with_context::format::{Colon, ContextFormat, WithContextColon};
 /// # Custom strategy
 /// ```
 /// use core::fmt::{self, Display, Formatter};
-/// use errortools::{ContextFormat, WithContext};
+/// use errortools::{WithContext, with_context::ContextFormat};
 ///
 /// struct Arrow;
-/// impl ContextFormat for Arrow {
-///     fn fmt<C: Display, E: Display>(c: &C, e: &E, f: &mut Formatter<'_>) -> fmt::Result {
+/// impl<C: Display, E: Display> ContextFormat<C, E> for Arrow {
+///     fn fmt(c: &C, e: &E, f: &mut Formatter<'_>) -> fmt::Result {
 ///         write!(f, "{c} -> {e}")
 ///     }
 /// }
 ///
-/// let w = WithContext::<_, _, Arrow>::new("step", "boom");
-/// assert_eq!(w.to_string(), "step -> boom");
+/// let w = WithContext::<_, _, Arrow>::new(1, "boom");
+/// assert_eq!(w.to_string(), "1 -> boom");
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WithContext<C, E, F = format::Colon> {
@@ -67,7 +69,7 @@ impl<C, E, F> WithContext<C, E, F> {
     }
 
     /// Switches the formatting strategy without touching the stored values.
-    pub fn with_format<G: ContextFormat>(self) -> WithContext<C, E, G> {
+    pub fn with_format<G: ContextFormat<C, E>>(self) -> WithContext<C, E, G> {
         WithContext {
             context: self.context,
             error: self.error,
@@ -82,8 +84,9 @@ impl<C, E, F> From<(C, E)> for WithContext<C, E, F> {
     }
 }
 
-/// Renders the pair via the strategy `F`.
-impl<C: Display, E: Display, F: ContextFormat> Display for WithContext<C, E, F> {
+/// Renders the pair via the strategy `F`. `C` and `E` have no `Display` bound
+/// here — the strategy decides what each must implement.
+impl<C, E, F: ContextFormat<C, E>> Display for WithContext<C, E, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         F::fmt(&self.context, &self.error, f)
     }
@@ -101,9 +104,9 @@ impl<C: Debug, E: Debug, F> Debug for WithContext<C, E, F> {
 
 impl<C, E, F> Error for WithContext<C, E, F>
 where
-    C: Display + Debug,
+    C: Debug,
     E: Error + 'static,
-    F: ContextFormat,
+    F: ContextFormat<C, E>,
 {
     /// Returns the inner error's source, skipping the inner error itself
     /// (already shown via [`Display`]) so chain-walking strategies don't
@@ -117,6 +120,8 @@ mod format {
     //! Formatting strategies for [`WithContext`].
 
     use core::fmt::{self, Display, Formatter};
+    #[cfg(feature = "std")]
+    use std::path::Path;
 
     use super::WithContext;
 
@@ -126,33 +131,51 @@ mod format {
     /// [`WithContext::new`] to work with a default strategy without a turbofish.
     pub type WithContextColon<C, E> = WithContext<C, E, Colon>;
 
+    /// Convenience alias for [`WithContext`] with the [`PathColon`] strategy.
+    /// Use this when your context is a path and you want it rendered via `Path::display`
+    /// without needing to wrap it in [`DisplayPath`](crate::DisplayPath) or another newtype.
+    #[cfg(feature = "std")]
+    pub type WithContextPathColon<C, E> = WithContext<C, E, PathColon>;
+
     /// A static strategy for combining a context value and an error into a single
     /// [`Display`] line.
     ///
-    /// Implement on a unit type to plug a custom rendering into
-    /// [`WithContext`]. The error's source chain is still walked by
-    /// [`FormatError`](crate::FormatError) strategies (`OneLine`, `Tree`, …); this
-    /// trait only controls how the `(context, error)` pair itself is printed.
-    pub trait ContextFormat {
+    /// The trait is parameterized over `C` and `E` so each strategy can declare
+    /// its own bounds: [`Colon`] requires `Display` on both, [`PathColon`]
+    /// requires `AsRef<Path>` on the context, and custom strategies can require
+    /// whatever they need. The error's source chain is still walked by
+    /// [`FormatError`](crate::FormatError) strategies (`OneLine`, `Tree`, …);
+    /// this trait only controls how the `(context, error)` pair itself is printed.
+    pub trait ContextFormat<C: ?Sized, E: ?Sized> {
         /// Writes `context` and `error` to `f` using the strategy.
-        fn fmt<C: Display, E: Display>(
-            context: &C,
-            error: &E,
-            f: &mut Formatter<'_>,
-        ) -> fmt::Result;
+        fn fmt(context: &C, error: &E, f: &mut Formatter<'_>) -> fmt::Result;
     }
 
-    /// Default [`ContextFormat`]: writes `"{context}: {error}"`.
+    /// Default [`ContextFormat`]: writes `"{context}: {error}"` for any pair of
+    /// `Display` values.
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
     pub struct Colon;
 
-    impl ContextFormat for Colon {
-        fn fmt<C: Display, E: Display>(
-            context: &C,
-            error: &E,
-            f: &mut Formatter<'_>,
-        ) -> fmt::Result {
+    impl<C: Display + ?Sized, E: Display + ?Sized> ContextFormat<C, E> for Colon {
+        fn fmt(context: &C, error: &E, f: &mut Formatter<'_>) -> fmt::Result {
             write!(f, "{context}: {error}")
+        }
+    }
+
+    /// Path-aware [`ContextFormat`]: writes `"{path}: {error}"` where `path` is
+    /// rendered via [`Path::display`].
+    ///
+    /// `Path` and `PathBuf` don't implement [`Display`] (paths may not be valid
+    /// UTF-8), so [`Colon`] won't accept them. `PathColon` plugs that gap
+    /// without needing a wrapper newtype around the context value.
+    #[cfg(feature = "std")]
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    pub struct PathColon;
+
+    #[cfg(feature = "std")]
+    impl<P: AsRef<Path> + ?Sized, E: Display + ?Sized> ContextFormat<P, E> for PathColon {
+        fn fmt(path: &P, error: &E, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(f, "{}: {error}", path.as_ref().display())
         }
     }
 }
@@ -175,8 +198,8 @@ mod tests {
     struct Middle(#[source] Leaf);
 
     struct Bracketed;
-    impl ContextFormat for Bracketed {
-        fn fmt<C: Display, E: Display>(c: &C, e: &E, f: &mut Formatter<'_>) -> fmt::Result {
+    impl<C: Display, E: Display> ContextFormat<C, E> for Bracketed {
+        fn fmt(c: &C, e: &E, f: &mut Formatter<'_>) -> fmt::Result {
             write!(f, "[{c}] {e}")
         }
     }
@@ -246,8 +269,8 @@ mod tests {
     #[test]
     fn test_custom_format_strategy() {
         struct Arrow;
-        impl ContextFormat for Arrow {
-            fn fmt<C: Display, E: Display>(c: &C, e: &E, f: &mut Formatter<'_>) -> fmt::Result {
+        impl<C: Display, E: Display> ContextFormat<C, E> for Arrow {
+            fn fmt(c: &C, e: &E, f: &mut Formatter<'_>) -> fmt::Result {
                 write!(f, "{c} -> {e}")
             }
         }
@@ -275,5 +298,22 @@ mod tests {
             err.one_line().to_string(),
             "an error happened: [context] middle: leaf error",
         );
+    }
+
+    /// `PathColon` formats path contexts directly, without a wrapper newtype.
+    #[cfg(feature = "std")]
+    #[test]
+    fn test_path_colon_strategy() {
+        use std::path::{Path, PathBuf};
+
+        let io_err = io::Error::new(io::ErrorKind::NotFound, "file missing");
+        let w = WithContext::<_, _, PathColon>::new(PathBuf::from("a/b/c.txt"), io_err);
+        assert_eq!(w.to_string(), "a/b/c.txt: file missing");
+
+        // Works for borrowed paths too.
+        let io_err = io::Error::new(io::ErrorKind::NotFound, "file missing");
+        let path: &Path = Path::new("a/b/c.txt");
+        let w = WithContext::<_, _, PathColon>::new(path, io_err);
+        assert_eq!(w.to_string(), "a/b/c.txt: file missing");
     }
 }
