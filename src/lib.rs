@@ -1,4 +1,8 @@
-#![doc = include_str!("../README.md")]
+#![cfg_attr(feature = "std", doc = include_str!("../README.md"))]
+#![cfg_attr(
+    not(feature = "std"),
+    doc = "Quality of life utilities for error handling in Rust."
+)]
 #![cfg_attr(not(any(feature = "std", test)), no_std)]
 #![warn(missing_docs)]
 
@@ -6,11 +10,17 @@ use core::{error::Error, fmt, iter, marker::PhantomData};
 
 mod main_result;
 mod oneline;
+#[cfg(feature = "std")]
+pub mod path_display;
 mod tree;
+pub mod with_context;
 
 pub use main_result::{DisplaySwapDebug, MainResult};
 pub use oneline::OneLine;
+#[cfg(feature = "std")]
+pub use path_display::DisplayPath;
 pub use tree::{Tree, TreeIndent, TreeMarker};
+pub use with_context::WithContext;
 
 /// A static strategy for formatting an error and its source chain.
 ///

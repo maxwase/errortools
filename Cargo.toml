@@ -22,3 +22,7 @@ thiserror = "2"
 [features]
 default = ["std"]
 std = ["itertools/use_std"]
+
+[[example]]
+name = "with_context"
+required-features = ["std"]
