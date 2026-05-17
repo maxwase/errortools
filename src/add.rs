@@ -140,28 +140,9 @@ pub mod separator {
 mod tests {
     use core::error::Error;
 
-    use thiserror::Error;
-
     use super::*;
-    use crate::{Formatted, OneLine, Suggest, Suggestion, Tree, tests::ErrorInner};
+    use crate::{Formatted, OneLine, Suggestion, Tree, tests::Inner};
     use separator::*;
-
-    #[derive(Error, Debug)]
-    enum SugError {
-        #[error("env file missing")]
-        NoEnv,
-        #[error("something else")]
-        Other,
-    }
-
-    impl Suggest for SugError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            match self {
-                Self::NoEnv => f.write_str("Did you mean rename the .env.example file to .env?"),
-                Self::Other => Ok(()),
-            }
-        }
-    }
 
     fn _assert_traits() {
         fn assert_all<
@@ -176,7 +157,7 @@ mod tests {
         fn assert_format<E: ?Sized, F: Format<E>>() {}
         assert_format::<crate::tests::Error, Add<OneLine, separator::NewLine>>();
         assert_format::<crate::tests::Error, Add<OneLine, Tree>>();
-        assert_format::<SugError, Add<Add<OneLine, separator::NewLine>, Suggestion>>();
+        assert_format::<crate::tests::Error, Add<Add<OneLine, separator::NewLine>, Suggestion>>();
 
         // Confirm Error bound still gates the leaf strategy, just not the trait.
         fn assert_oneline<E: Error + ?Sized>()
@@ -189,37 +170,37 @@ mod tests {
 
     #[test]
     fn test_one_line_plus_newline() {
-        let error = crate::tests::Error::Two(ErrorInner::One);
+        let error = crate::tests::Error::Two(Inner::A);
         assert_eq!(
             Formatted::<_, Add<OneLine, NewLine>>::new(error).to_string(),
-            "Two: One\n"
+            "Two: InnerA\n"
         );
     }
 
     #[test]
     fn test_nested_oneline_newline_suggestion() {
-        let error = SugError::NoEnv;
+        let error = crate::tests::Error::One;
         assert_eq!(
             Formatted::<_, Add<Add<OneLine, NewLine>, Suggestion>>::new(error).to_string(),
-            "env file missing\nDid you mean rename the .env.example file to .env?"
+            "One\nTry passing --help to see available options."
         );
     }
 
     #[test]
     fn test_empty_rhs_keeps_separator() {
-        let error = SugError::Other;
+        let error = crate::tests::Error::Two(Inner::A);
         assert_eq!(
             Formatted::<_, Add<Add<OneLine, NewLine>, Suggestion>>::new(error).to_string(),
-            "something else\n"
+            "Two: InnerA\n"
         );
     }
 
     #[test]
     fn test_right_associated_nesting() {
-        let error = crate::tests::Error::Two(ErrorInner::One);
+        let error = crate::tests::Error::Two(Inner::A);
         assert_eq!(
             Formatted::<_, Add<OneLine, Add<NewLine, OneLine>>>::new(error).to_string(),
-            "Two: One\nTwo: One"
+            "Two: InnerA\nTwo: InnerA"
         );
     }
 
@@ -261,10 +242,10 @@ mod tests {
     #[test]
     fn test_with_newline_alias() {
         use separator::WithNewLine;
-        let error = crate::tests::Error::Two(ErrorInner::One);
+        let error = crate::tests::Error::Two(Inner::A);
         assert_eq!(
             Formatted::<_, WithNewLine<OneLine, OneLine>>::new(error).to_string(),
-            "Two: One\nTwo: One"
+            "Two: InnerA\nTwo: InnerA"
         );
     }
 
