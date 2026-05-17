@@ -19,7 +19,8 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// A context value paired with an error, rendered through a static
 /// [`Format`] strategy.
 ///
-/// `Display` delegates to `F::fmt(self, f)`, so any `F: Format<WithContext<C, E, F>>`
+/// `Display` delegates to `WithContextFormat::fmt(self, f)`, so any
+/// `WithContextFormat: Format<WithContext<C, E, WithContextFormat>>`
 /// can format the pair. Strategies are usually built by composing the field
 /// extractors [`ContextField`] / [`ErrorField`] (or [`ContextPath`] when
 /// `C: AsRef<Path>`) with separator strategies via
@@ -58,8 +59,8 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// use errortools::{Format, WithContext};
 ///
 /// struct Arrow;
-/// impl<C: Display, E: Display, F> Format<WithContext<C, E, F>> for Arrow {
-///     fn fmt(w: &WithContext<C, E, F>, f: &mut Formatter<'_>) -> fmt::Result {
+/// impl<C: Display, E: Display, WithContextFormat> Format<WithContext<C, E, WithContextFormat>> for Arrow {
+///     fn fmt(w: &WithContext<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
 ///         write!(f, "{} -> {}", w.context, w.error)
 ///     }
 /// }
@@ -68,16 +69,16 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// assert_eq!(w.to_string(), "1 -> boom");
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WithContext<C, E, F = Colon> {
+pub struct WithContext<C, E, WithContextFormat = Colon> {
     /// The context value tagging this error (e.g. a file path or step number).
     pub context: C,
     /// The underlying error.
     pub error: E,
 
-    _format: PhantomData<fn() -> F>,
+    _format: PhantomData<fn() -> WithContextFormat>,
 }
 
-impl<C, E, F> WithContext<C, E, F> {
+impl<C, E, WithContextFormat> WithContext<C, E, WithContextFormat> {
     /// Creates a new [`WithContext`] pairing `context` with `error`.
     ///
     /// Use [`WithContextColon`] for the default `Colon` strategy and type inference on `new` without a turbofish.
@@ -90,9 +91,9 @@ impl<C, E, F> WithContext<C, E, F> {
     }
 
     /// Switches the formatting strategy without touching the stored values.
-    pub fn with_format<G>(self) -> WithContext<C, E, G>
+    pub fn with_format<NewSelfFormat>(self) -> WithContext<C, E, NewSelfFormat>
     where
-        G: Format<WithContext<C, E, G>>,
+        NewSelfFormat: Format<WithContext<C, E, NewSelfFormat>>,
     {
         WithContext {
             context: self.context,
@@ -102,25 +103,25 @@ impl<C, E, F> WithContext<C, E, F> {
     }
 }
 
-impl<C, E, F> From<(C, E)> for WithContext<C, E, F> {
+impl<C, E, WithContextFormat> From<(C, E)> for WithContext<C, E, WithContextFormat> {
     fn from((context, error): (C, E)) -> Self {
         Self::new(context, error)
     }
 }
 
-/// Renders the pair via the strategy `F`. `C` and `E` have no `Display` bound
-/// here — the strategy decides what each must implement.
-impl<C, E, F> Display for WithContext<C, E, F>
+/// Renders the pair via the strategy `WithContextFormat`. `C` and `E` have
+/// no `Display` bound here — the strategy decides what each must implement.
+impl<C, E, WithContextFormat> Display for WithContext<C, E, WithContextFormat>
 where
-    F: Format<Self>,
+    WithContextFormat: Format<Self>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        F::fmt(self, f)
+        WithContextFormat::fmt(self, f)
     }
 }
 
 /// Forwards to the fields' `Debug` rather than printing the `PhantomData` tag.
-impl<C: Debug, E: Debug, F> Debug for WithContext<C, E, F> {
+impl<C: Debug, E: Debug, WithContextFormat> Debug for WithContext<C, E, WithContextFormat> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("WithContext")
             .field("context", &self.context)
@@ -129,11 +130,11 @@ impl<C: Debug, E: Debug, F> Debug for WithContext<C, E, F> {
     }
 }
 
-impl<C, E, F> Error for WithContext<C, E, F>
+impl<C, E, WithContextFormat> Error for WithContext<C, E, WithContextFormat>
 where
     C: Debug,
     E: Error + 'static,
-    F: Format<Self>,
+    WithContextFormat: Format<Self>,
 {
     /// Returns the inner error's source, skipping the inner error itself
     /// (already shown via [`Display`]) so chain-walking strategies don't
@@ -175,8 +176,10 @@ mod format {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
     pub struct ContextField;
 
-    impl<C: Display, E, F> Format<WithContext<C, E, F>> for ContextField {
-        fn fmt(w: &WithContext<C, E, F>, f: &mut Formatter<'_>) -> fmt::Result {
+    impl<C: Display, E, WithContextFormat> Format<WithContext<C, E, WithContextFormat>>
+        for ContextField
+    {
+        fn fmt(w: &WithContext<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
             Display::fmt(&w.context, f)
         }
     }
@@ -187,8 +190,8 @@ mod format {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
     pub struct ErrorField;
 
-    impl<C, E: Display, F> Format<WithContext<C, E, F>> for ErrorField {
-        fn fmt(w: &WithContext<C, E, F>, f: &mut Formatter<'_>) -> fmt::Result {
+    impl<C, E: Display, WithContextFormat> Format<WithContext<C, E, WithContextFormat>> for ErrorField {
+        fn fmt(w: &WithContext<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
             Display::fmt(&w.error, f)
         }
     }
@@ -203,8 +206,10 @@ mod format {
     pub struct ContextPath;
 
     #[cfg(feature = "std")]
-    impl<P: AsRef<Path>, E, F> Format<WithContext<P, E, F>> for ContextPath {
-        fn fmt(w: &WithContext<P, E, F>, f: &mut Formatter<'_>) -> fmt::Result {
+    impl<P: AsRef<Path>, E, WithContextFormat> Format<WithContext<P, E, WithContextFormat>>
+        for ContextPath
+    {
+        fn fmt(w: &WithContext<P, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
             w.context.as_ref().display().fmt(f)
         }
     }
@@ -242,14 +247,16 @@ mod tests {
 
     /// Custom one-shot strategy: `[ctx] err`.
     struct Bracketed;
-    impl<C: Display, E: Display, F> Format<WithContext<C, E, F>> for Bracketed {
-        fn fmt(w: &WithContext<C, E, F>, f: &mut Formatter<'_>) -> fmt::Result {
+    impl<C: Display, E: Display, WithContextFormat> Format<WithContext<C, E, WithContextFormat>>
+        for Bracketed
+    {
+        fn fmt(w: &WithContext<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
             write!(f, "[{}] {}", w.context, w.error)
         }
     }
 
     /// Caller-facing error in this test module. The `#[from]` impl is what
-    /// drives `F = Bracketed` inference at the `?` site in [`returning_error`].
+    /// drives `WithContextFormat = Bracketed` inference at the `?` site in [`returning_error`].
     #[derive(Error, Debug)]
     #[error("an error happened")]
     pub struct Error(#[from] WithContext<&'static str, Middle, Bracketed>);
@@ -261,7 +268,7 @@ mod tests {
     /// Realistic use: a function tags an inner error with context via
     /// `map_err`, then `?` routes it through `#[from]` into the caller's
     /// error type.
-    /// Most importantly, `F` is inferred from the `From` impl on `Error`.
+    /// Most importantly, `WithContextFormat` is inferred from the `From` impl on `Error`.
     fn returning_error() -> Result<(), Error> {
         returning_middle().map_err(|e| WithContext::new("context", e))?;
         Ok(())
@@ -313,8 +320,10 @@ mod tests {
     #[test]
     fn test_custom_format_strategy() {
         struct Arrow;
-        impl<C: Display, E: Display, F> Format<WithContext<C, E, F>> for Arrow {
-            fn fmt(w: &WithContext<C, E, F>, f: &mut Formatter<'_>) -> fmt::Result {
+        impl<C: Display, E: Display, WithContextFormat> Format<WithContext<C, E, WithContextFormat>>
+            for Arrow
+        {
+            fn fmt(w: &WithContext<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
                 write!(f, "{} -> {}", w.context, w.error)
             }
         }
@@ -331,9 +340,10 @@ mod tests {
     }
 
     /// End-to-end: `map_err` wraps an inner error with [`WithContext`], `?`
-    /// fires `From<WithContext<_, _, Bracketed>> for Error` (and pins `F`),
-    /// and the full chain comes out via [`FormatError::one_line`] without any
-    /// duplication thanks to `source` skipping the inner error.
+    /// fires `From<WithContext<_, _, Bracketed>> for Error` (and pins
+    /// `WithContextFormat`), and the full chain comes out via
+    /// [`FormatError::one_line`] without any duplication thanks to `source`
+    /// skipping the inner error.
     #[test]
     fn test_propagation_via_question_mark() {
         let err = returning_error().expect_err("returning_error must error");
