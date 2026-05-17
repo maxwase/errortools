@@ -21,7 +21,9 @@ thiserror = "2"
 
 [features]
 default = ["std"]
-std = ["itertools/use_std"]
+
+std = ["alloc", "itertools/use_std"]
+alloc = []
 
 [[example]]
 name = "with_context"

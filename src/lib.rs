@@ -6,10 +6,15 @@
 #![cfg_attr(not(any(feature = "std", test)), no_std)]
 #![warn(missing_docs)]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 use core::{error::Error, fmt, iter, marker::PhantomData};
 
 mod add;
 mod main_result;
+#[cfg(feature = "alloc")]
+pub mod many_errors;
 mod oneline;
 #[cfg(feature = "std")]
 pub mod path_display;
