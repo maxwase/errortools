@@ -24,6 +24,8 @@ pub mod with_context;
 
 pub use add::{Add, separator};
 pub use main_result::{DisplaySwapDebug, MainResult, MainResultWithSuggestion, WithSuggestion};
+#[cfg(feature = "alloc")]
+pub use many_errors::{Listing, ManyErrors};
 pub use oneline::OneLine;
 #[cfg(feature = "std")]
 pub use path_display::DisplayPath;
@@ -36,7 +38,8 @@ pub use with_context::WithContext;
 /// Usually, the error is traversed via [`chain`] to format the entire source chain,
 /// but this is not required — the strategy can choose to ignore the chain or format
 /// non-error types as well.
-/// For example, an implementation of [`Format<WithContext<C, E, F>>`] can format the context
+/// For example, an implementation of
+/// [`Format<WithContext<C, E, WithContextFormat>>`] can format the context
 /// and error fields of [`WithContext`] with field extractors like
 /// [`ContextField`](crate::with_context::ContextField) and [`ErrorField`](crate::with_context::ErrorField)
 /// without walking the source chain at all.
@@ -54,6 +57,21 @@ pub use with_context::WithContext;
 pub trait Format<E: ?Sized> {
     /// Writes `error` and its source chain to `f` using the strategy.
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+}
+
+/// Sentinel [`Format`] strategy that delegates to the value's own [`Display`]
+/// impl.
+///
+/// Useful as a default in strategy-aware wrappers (e.g. [`Listing`](crate::Listing))
+/// when per-item formatting should defer to each item's own `Display` (and
+/// thus its own type-level strategy) rather than being overridden.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct AsDisplay;
+
+impl<T: fmt::Display + ?Sized> Format<T> for AsDisplay {
+    fn fmt(value: &T, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(value, f)
+    }
 }
 
 /// Iterator over an error and its source chain.
@@ -109,6 +127,9 @@ impl<E, F> Formatted<E, F> {
 }
 
 /// Renders the wrapped error via the strategy `F`.
+/// These genetic bounds actually define whether a strategy can be used to format a given error type
+/// Any error type can be put into a strategy, but not every can actually be formatted.
+/// That's why it's possible to construct, but get a compiler error when trying to call [`fmt::Display`] on the combination.
 impl<E: Error, F: Format<E>> fmt::Display for Formatted<E, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         F::fmt(&self.0, f)

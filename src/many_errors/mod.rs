@@ -4,18 +4,24 @@ use core::{
     error::Error,
     fmt::{self, Debug, Display, Formatter},
     marker::PhantomData,
-    ops::ControlFlow,
 };
 
 use alloc::{vec, vec::Vec};
 
-use crate::{Format, with_context::WithContext};
+use crate::{
+    AsDisplay, Format,
+    with_context::{Colon, WithContext},
+};
+
+mod iter;
 
 /// Zero or more context-tagged errors collected during an iterator/fold operation.
 ///
-/// The three-variant split lets consumers pattern-match and render each case
-/// differently — for example, printing a single error with its full chain or
-/// listing all errors line-by-line with [`ManyErrors::list`].
+/// The three-variant split lets consumers pattern-match on the empty / single /
+/// multiple cases. [`Display`] renders each recorded [`WithContext`] via the
+/// strategy `WithContextFormat`, one per line — mirroring [`WithContext`]'s
+/// strategy-dispatched Display. The default `WithContextFormat = Colon` produces
+/// `"{context}: {error}"` per item.
 ///
 /// # Example
 /// ```
@@ -26,17 +32,17 @@ use crate::{Format, with_context::WithContext};
 /// assert!(errs.is_empty());
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub enum ManyErrors<C, E> {
+pub enum ManyErrors<C, E, WithContextFormat = Colon> {
     /// No errors were recorded.
     #[default]
     None,
     /// Exactly one error was recorded.
-    One(WithContext<C, E>),
+    One(WithContext<C, E, WithContextFormat>),
     /// Two or more errors were recorded.
-    Many(Vec<WithContext<C, E>>),
+    Many(Vec<WithContext<C, E, WithContextFormat>>),
 }
 
-impl<C, E> ManyErrors<C, E> {
+impl<C, E, WithContextFormat> ManyErrors<C, E, WithContextFormat> {
     /// Creates an empty `ManyErrors`.
     pub const fn new() -> Self {
         Self::None
@@ -66,7 +72,7 @@ impl<C, E> ManyErrors<C, E> {
     /// errs.push(WithContext::new("step 1", std::io::Error::other("fail")));
     /// assert_eq!(errs.len(), 1);
     /// ```
-    pub fn push(&mut self, item: WithContext<C, E>) {
+    pub fn push(&mut self, item: WithContext<C, E, WithContextFormat>) {
         let prev = core::mem::take(self);
         *self = match prev {
             Self::None => Self::One(item),
@@ -93,218 +99,87 @@ impl<C, E> ManyErrors<C, E> {
             _ => Err(self),
         }
     }
-
-    /// Returns an iterator over references to each recorded [`WithContext`].
-    pub fn iter(&self) -> Iter<'_, C, E> {
-        Iter::new(self)
-    }
-
-    /// Returns a [`Display`](fmt::Display) adapter that renders each error on its
-    /// own line using format strategy `F`.
-    ///
-    /// # Example
-    /// ```
-    /// use errortools::{ManyErrors, OneLine, WithContext};
-    ///
-    /// let mut errs = ManyErrors::<&str, std::io::Error>::new();
-    /// errs.push(WithContext::new("a", std::io::Error::other("err a")));
-    /// errs.push(WithContext::new("b", std::io::Error::other("err b")));
-    /// let output = errs.list::<OneLine>().to_string();
-    /// assert!(output.contains("a: err a"));
-    /// assert!(output.contains("b: err b"));
-    /// ```
-    pub fn list<F: Format<WithContext<C, E>>>(&self) -> Listing<'_, C, E, F>
-    where
-        C: Display + Debug,
-        E: Error + 'static,
-    {
-        Listing(self, PhantomData)
-    }
 }
 
-// --- FromIterator ---
-
-impl<C, E> FromIterator<WithContext<C, E>> for ManyErrors<C, E> {
-    fn from_iter<I: IntoIterator<Item = WithContext<C, E>>>(iter: I) -> Self {
-        let mut me = Self::None;
-        me.extend(iter);
-        me
-    }
-}
-
-impl<C, E> FromIterator<(C, E)> for ManyErrors<C, E> {
-    fn from_iter<I: IntoIterator<Item = (C, E)>>(iter: I) -> Self {
-        iter.into_iter().map(WithContext::from).collect()
-    }
-}
-
-impl<C, E> FromIterator<ControlFlow<WithContext<C, E>, WithContext<C, E>>> for ManyErrors<C, E> {
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = ControlFlow<WithContext<C, E>, WithContext<C, E>>>,
-    {
-        let mut me = Self::None;
-        me.extend(iter);
-        me
-    }
-}
-
-impl<C, E> FromIterator<ControlFlow<(C, E), (C, E)>> for ManyErrors<C, E> {
-    fn from_iter<I: IntoIterator<Item = ControlFlow<(C, E), (C, E)>>>(iter: I) -> Self {
-        let mut me = Self::None;
-        me.extend(iter);
-        me
-    }
-}
-
-// --- Extend ---
-
-impl<C, E> Extend<WithContext<C, E>> for ManyErrors<C, E> {
-    fn extend<I: IntoIterator<Item = WithContext<C, E>>>(&mut self, iter: I) {
-        for item in iter {
-            self.push(item);
-        }
-    }
-}
-
-impl<C, E> Extend<(C, E)> for ManyErrors<C, E> {
-    fn extend<I: IntoIterator<Item = (C, E)>>(&mut self, iter: I) {
-        self.extend(iter.into_iter().map(WithContext::from));
-    }
-}
-
-/// `Continue(w)` records `w` and keeps iterating; `Break(w)` records `w` and stops.
-impl<C, E> Extend<ControlFlow<WithContext<C, E>, WithContext<C, E>>> for ManyErrors<C, E> {
-    fn extend<I>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = ControlFlow<WithContext<C, E>, WithContext<C, E>>>,
-    {
-        for cf in iter {
-            let stop = matches!(cf, ControlFlow::Break(_));
-            let w = match cf {
-                ControlFlow::Continue(w) | ControlFlow::Break(w) => w,
-            };
-            self.push(w);
-            if stop {
-                break;
-            }
-        }
-    }
-}
-
-impl<C, E> Extend<ControlFlow<(C, E), (C, E)>> for ManyErrors<C, E> {
-    fn extend<I>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = ControlFlow<(C, E), (C, E)>>,
-    {
-        self.extend(iter.into_iter().map(|cf| match cf {
-            ControlFlow::Continue(t) => ControlFlow::Continue(WithContext::from(t)),
-            ControlFlow::Break(t) => ControlFlow::Break(WithContext::from(t)),
-        }));
-    }
-}
-
-// --- Display + Error ---
-
-impl<C: Display, E: Display> Display for ManyErrors<C, E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::None => Ok(()),
-            Self::One(p) => Display::fmt(&p.context, f),
-            Self::Many(v) => write!(f, "{} errors", v.len()),
-        }
-    }
-}
-
-impl<C, E> Error for ManyErrors<C, E>
+/// Renders each recorded error on its own line. Each item is rendered via its
+/// own [`Display`] (and thus its own type-level strategy `WithContextFormat`), since this
+/// Display impl routes through [`Listing<AsDisplay>`].
+impl<C, E, WithContextFormat> Display for ManyErrors<C, E, WithContextFormat>
 where
-    C: Display + Debug,
-    E: Error + 'static,
+    WithContextFormat: Format<WithContext<C, E, WithContextFormat>>,
 {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::None => None,
-            // Skip the WithContext wrapper to avoid repeating the context in the chain.
-            Self::One(p) => Some(&p.error),
-            Self::Many(_) => None,
-        }
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        <Listing<AsDisplay> as Format<Self>>::fmt(self, f)
     }
 }
 
-// --- Iter ---
-
-/// Iterator over references to each [`WithContext`] in a [`ManyErrors`].
-pub struct Iter<'a, C, E>(IterInner<'a, C, E>);
-
-enum IterInner<'a, C, E> {
-    Empty,
-    One(Option<&'a WithContext<C, E>>),
-    Many(core::slice::Iter<'a, WithContext<C, E>>),
-}
-
-impl<'a, C, E> Iter<'a, C, E> {
-    fn new(many: &'a ManyErrors<C, E>) -> Self {
-        Self(match many {
-            ManyErrors::None => IterInner::Empty,
-            ManyErrors::One(w) => IterInner::One(Some(w)),
-            ManyErrors::Many(v) => IterInner::Many(v.iter()),
-        })
-    }
-}
-
-impl<'a, C, E> Iterator for Iter<'a, C, E> {
-    type Item = &'a WithContext<C, E>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.0 {
-            IterInner::Empty => None,
-            IterInner::One(slot) => slot.take(),
-            IterInner::Many(it) => it.next(),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match &self.0 {
-            IterInner::Empty => (0, Some(0)),
-            IterInner::One(slot) => {
-                let n = slot.is_some() as usize;
-                (n, Some(n))
-            }
-            IterInner::Many(it) => it.size_hint(),
-        }
-    }
-}
-
-// --- Listing ---
-
-/// Renders all errors in a [`ManyErrors`], one per line, each via strategy `F`.
+/// Aggregate strategy that renders each item in a [`ManyErrors`] on its own
+/// line, formatting each via the per-item strategy `G`.
 ///
-/// Obtained from [`ManyErrors::list`].
-pub struct Listing<'a, C, E, F = crate::OneLine>(&'a ManyErrors<C, E>, PhantomData<fn() -> F>);
+/// The default `G = AsDisplay` defers to each item's own [`Display`] (and
+/// thus its own type-level strategy `WithContextFormat`). Pass a concrete `G` (e.g.
+/// [`OneLine`](crate::OneLine) or [`Tree`](crate::Tree)) to override per-item
+/// rendering.
+///
+/// Listing is implemented for both `ManyErrors<C, E, WithContextFormat>` and
+/// `&ManyErrors<C, E, WithContextFormat>` so it can be used directly inside this module's
+/// `Display` and via the [`Formatted`](crate::Formatted) wrapper (which holds
+/// a reference) from [`FormatError::formatted`](crate::FormatError::formatted).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Listing<IndividualErrorFormat = AsDisplay>(PhantomData<fn() -> IndividualErrorFormat>);
 
-impl<C, E, F> Display for Listing<'_, C, E, F>
+impl<C, E, WithContextFormat, IndividualErrorFormat> Format<ManyErrors<C, E, WithContextFormat>>
+    for Listing<IndividualErrorFormat>
 where
-    C: Display + Debug,
-    E: Error + 'static,
-    F: Format<WithContext<C, E>>,
+    IndividualErrorFormat: Format<WithContext<C, E, WithContextFormat>>,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut it = self.0.iter();
+    fn fmt(error: &ManyErrors<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut it = error.iter();
         let Some(first) = it.next() else {
             return Ok(());
         };
-        F::fmt(first, f)?;
+        IndividualErrorFormat::fmt(first, f)?;
         for p in it {
             writeln!(f)?;
-            F::fmt(p, f)?;
+            IndividualErrorFormat::fmt(p, f)?;
         }
         Ok(())
     }
 }
 
+/// Trampoline so [`Formatted<&ManyErrors<_>, Listing<IndividualErrorFormat>>`](crate::Formatted)
+/// (the type produced by `e.formatted::<Listing<_>>()`) can dispatch through
+/// the owned impl above.
+impl<C, E, WithContextFormat, IndividualErrorFormat> Format<&ManyErrors<C, E, WithContextFormat>>
+    for Listing<IndividualErrorFormat>
+where
+    IndividualErrorFormat: Format<WithContext<C, E, WithContextFormat>>,
+{
+    fn fmt(error: &&ManyErrors<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
+        <Self as Format<ManyErrors<C, E, WithContextFormat>>>::fmt(error, f)
+    }
+}
+
+impl<C, E, WithContextFormat> Error for ManyErrors<C, E, WithContextFormat>
+where
+    C: Debug,
+    E: Error + 'static,
+    WithContextFormat: Format<WithContext<C, E, WithContextFormat>> + Debug,
+{
+    /// For [`Self::One`], skips the inner error (already shown via Display) and
+    /// returns its source so chain-walking strategies don't duplicate it.
+    /// [`Self::Many`] has no single source — the chain ends here.
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::None | Self::Many(_) => None,
+            Self::One(p) => p.error.source(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::io;
+    use std::{io, ops::ControlFlow};
 
     use thiserror::Error;
 
@@ -352,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_push_many_grows() {
-        let mut e = ManyErrors::new();
+        let mut e: ManyErrors<u32, Leaf> = ManyErrors::new();
         for i in 0..5u32 {
             e.push(WithContext::new(i, Leaf));
         }
@@ -456,26 +331,99 @@ mod tests {
 
     // --- Display + Error ---
 
+    /// Per-item override used by formatter tests to verify
+    /// `Listing<G>` dispatches to `G` instead of each item's own Display.
+    #[derive(Debug)]
+    struct Arrow;
+    impl<C: Display, E: Display, WithContextFormat> Format<WithContext<C, E, WithContextFormat>>
+        for Arrow
+    {
+        fn fmt(w: &WithContext<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(f, "{} -> {}", w.context, w.error)
+        }
+    }
+
     #[test]
-    fn test_display_none_is_empty() {
+    fn test_format_zero_errors() {
         let e = ManyErrors::<&str, Leaf>::new();
+
+        // Display (default Listing<AsDisplay>).
         assert_eq!(e.to_string(), "");
+        // Explicit Listing variants — all empty.
+        assert_eq!(e.formatted::<Listing>().to_string(), "");
+        assert_eq!(e.formatted::<Listing<OneLine>>().to_string(), "");
+        assert_eq!(e.formatted::<Listing<Tree>>().to_string(), "");
     }
 
     #[test]
-    fn test_display_one_writes_context() {
-        let mut e = ManyErrors::new();
-        e.push(w("step 1"));
-        assert_eq!(e.to_string(), "step 1");
+    fn test_format_one_error() {
+        // Mid → Leaf so OneLine / Tree have a chain to walk.
+        let mut e: ManyErrors<&str, Mid> = ManyErrors::new();
+        e.push(WithContext::new("ctx", Mid(Leaf)));
+
+        // Default WithContextFormat = Colon → "{context}: {error}".
+        assert_eq!(e.to_string(), "ctx: mid");
+        assert_eq!(e.formatted::<Listing>().to_string(), "ctx: mid");
+        // Listing<OneLine> walks the chain.
+        assert_eq!(
+            e.formatted::<Listing<OneLine>>().to_string(),
+            "ctx: mid: leaf"
+        );
+        assert_eq!(
+            e.formatted::<Listing<Tree>>().to_string(),
+            "ctx: mid\n└── leaf",
+        );
+
+        // Per-item WithContextFormat override (Arrow) — affects items' own
+        // Display, which is what Listing<AsDisplay> defers to.
+        let mut a: ManyErrors<&str, Mid, _> = ManyErrors::new();
+        a.push(WithContext::<_, _, Arrow>::new("ctx", Mid(Leaf)));
+        assert_eq!(a.to_string(), "ctx -> mid");
+        assert_eq!(a.formatted::<Listing>().to_string(), "ctx -> mid");
+        // Listing<OneLine> does NOT fully override: OneLine walks the Error
+        // chain, whose first element is the WithContext itself — and that
+        // WithContext's Display still fires its own F=Arrow. Limitation.
+        assert_eq!(
+            a.formatted::<Listing<OneLine>>().to_string(),
+            "ctx -> mid: leaf",
+        );
+        assert_eq!(
+            a.formatted::<Listing<Tree>>().to_string(),
+            "ctx -> mid\n└── leaf",
+        );
     }
 
     #[test]
-    fn test_display_many_writes_count() {
-        let mut e = ManyErrors::new();
-        e.push(w("a"));
-        e.push(w("b"));
-        e.push(w("c"));
-        assert_eq!(e.to_string(), "3 errors");
+    fn test_format_many_errors() {
+        let mut e: ManyErrors<&str, Mid> = ManyErrors::new();
+        e.push(WithContext::new("a", Mid(Leaf)));
+        e.push(WithContext::new("b", Mid(Leaf)));
+        e.push(WithContext::new("c", Mid(Leaf)));
+
+        assert_eq!(e.to_string(), "a: mid\nb: mid\nc: mid");
+        assert_eq!(e.formatted::<Listing>().to_string(), e.to_string());
+        assert_eq!(
+            e.formatted::<Listing<OneLine>>().to_string(),
+            "a: mid: leaf\nb: mid: leaf\nc: mid: leaf",
+        );
+        assert_eq!(
+            e.formatted::<Listing<Tree>>().to_string(),
+            "a: mid\n└── leaf\nb: mid\n└── leaf\nc: mid\n└── leaf",
+        );
+
+        // Arrow override on items.
+        let mut a: ManyErrors<&str, Mid, _> = ManyErrors::new();
+        a.push(WithContext::<_, _, Arrow>::new("a", Mid(Leaf)));
+        a.push(WithContext::<_, _, Arrow>::new("b", Mid(Leaf)));
+        assert_eq!(a.to_string(), "a -> mid\nb -> mid");
+        assert_eq!(
+            a.formatted::<Listing<OneLine>>().to_string(),
+            "a -> mid: leaf\nb -> mid: leaf",
+        );
+        assert_eq!(
+            a.formatted::<Listing<Tree>>().to_string(),
+            "a -> mid\n└── leaf\nb -> mid\n└── leaf",
+        );
     }
 
     #[test]
@@ -485,12 +433,13 @@ mod tests {
     }
 
     #[test]
-    fn test_source_one_skips_wrapper() {
+    fn test_source_one_skips_inner_error() {
         let mut e: ManyErrors<&str, Mid> = ManyErrors::new();
         e.push(WithContext::new("ctx", Mid(Leaf)));
-        // source should be &Mid, not &WithContext
+        // Display already shows "ctx: mid"; source returns Mid's source (&Leaf)
+        // so chain walkers don't repeat "mid".
         let src = e.source().expect("should have source");
-        assert_eq!(src.to_string(), "mid");
+        assert_eq!(src.to_string(), "leaf");
     }
 
     #[test]
@@ -532,40 +481,6 @@ mod tests {
         e.push(w("b"));
         let ctxs: Vec<_> = e.iter().map(|w| w.context).collect();
         assert_eq!(ctxs, ["a", "b"]);
-    }
-
-    // --- Listing ---
-
-    #[test]
-    fn test_listing_none_empty() {
-        let e = ManyErrors::<&str, Leaf>::new();
-        assert_eq!(e.list::<OneLine>().to_string(), "");
-    }
-
-    #[test]
-    fn test_listing_one_formats_chain() {
-        let mut e: ManyErrors<&str, Mid> = ManyErrors::new();
-        e.push(WithContext::new("ctx", Mid(Leaf)));
-        assert_eq!(e.list::<OneLine>().to_string(), "ctx: mid: leaf");
-    }
-
-    #[test]
-    fn test_listing_many_one_per_line() {
-        let errs: ManyErrors<&str, Leaf> = [("a", Leaf), ("b", Leaf), ("c", Leaf)]
-            .into_iter()
-            .collect();
-        let out = errs.list::<OneLine>().to_string();
-        assert_eq!(out, "a: leaf\nb: leaf\nc: leaf");
-    }
-
-    #[test]
-    fn test_listing_tree_strategy() {
-        let mut e: ManyErrors<&str, Mid> = ManyErrors::new();
-        e.push(WithContext::new("ctx", Mid(Leaf)));
-        let out = e.list::<Tree>().to_string();
-        assert!(out.contains("ctx"));
-        assert!(out.contains("mid"));
-        assert!(out.contains("leaf"));
     }
 
     // --- io::Error integration ---
