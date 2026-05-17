@@ -52,7 +52,7 @@ impl<'a, C, E, WithContextFormat> Iterator for Iter<'a, C, E, WithContextFormat>
 }
 
 mod from_iter {
-    use std::ops::ControlFlow;
+    use core::ops::ControlFlow;
 
     use super::*;
 
