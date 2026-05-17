@@ -1,7 +1,9 @@
 //! Display-adapter wrapper for [`Path`]-like values.
-//! This is an experimental helper module. Prefer defining printing strategies
-//! that call `Path::display` directly, e.g. via [`ContextFormat<C, E>`](crate::with_context::ContextFormat) for [`WithContext`](crate::WithContext).
-//! See [`WithPath`](crate::with_context::WithPath) to get the idea.
+//! This is an experimental helper module. Prefer composing a path-aware
+//! [`Format`](crate::Format) strategy for [`WithContext`](crate::WithContext)
+//! via [`ContextPath`](crate::with_context::ContextPath) — see
+//! [`PathColon`](crate::with_context::PathColon) and
+//! [`WithPath`](crate::with_context::WithPath) for the canonical use.
 
 use core::fmt;
 use std::path::Path;

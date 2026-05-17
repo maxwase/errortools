@@ -8,6 +8,7 @@
 
 use core::{error::Error, fmt, iter, marker::PhantomData};
 
+mod add;
 mod main_result;
 mod oneline;
 #[cfg(feature = "std")]
@@ -16,7 +17,8 @@ mod suggestion;
 mod tree;
 pub mod with_context;
 
-pub use main_result::{DisplaySwapDebug, MainResult};
+pub use add::{Add, separator};
+pub use main_result::{DisplaySwapDebug, MainResult, MainResultWithSuggestion, WithSuggestion};
 pub use oneline::OneLine;
 #[cfg(feature = "std")]
 pub use path_display::DisplayPath;
@@ -24,21 +26,27 @@ pub use suggestion::{Suggest, Suggestion};
 pub use tree::{Tree, TreeIndent, TreeMarker};
 pub use with_context::WithContext;
 
-/// A static strategy for formatting an error and its source chain.
+/// A static strategy for formatting a value to a [`fmt::Formatter`].
 ///
-/// The strategy is parameterized over the error type `E` so each strategy can declare its own bounds:
-/// [`OneLine`] and [`Tree`] accept any `E: Error`,
-/// while strategies like [`Suggestion`](crate::Suggestion) additionally require [`Suggestion`] on `E`.
+/// Usually, the error is traversed via [`chain`] to format the entire source chain,
+/// but this is not required — the strategy can choose to ignore the chain or format
+/// non-error types as well.
+/// For example, an implementation of [`Format<WithContext<C, E, F>>`] can format the context
+/// and error fields of [`WithContext`] with field extractors like
+/// [`ContextField`](crate::with_context::ContextField) and [`ErrorField`](crate::with_context::ErrorField)
+/// without walking the source chain at all.
 ///
-/// Use [`chain`] to walk the error and its sources.
+/// `E` is the value being formatted; each strategy declares its own bounds:
+/// [`OneLine`] and [`Tree`] require `E: Error`, [`Suggestion`] additionally
+/// requires [`Suggest`], and field extractors like
+/// [`ContextField`](crate::with_context::ContextField) require `E` to be a
+/// specific shape. The trait itself imposes nothing beyond `?Sized` so
+/// strategies can format non-error pairs (e.g. [`WithContext`]).
 ///
 /// We cannot rely on `fmt::*` traits because:
 /// 1. They accept &self
-/// 1. `Error` is already bound by it
-///
-/// In theory, the [Error] bound can be removed, but it would create confusion when implementing custom strategies,
-/// so it's better to keep it.
-pub trait Format<E: Error + ?Sized> {
+/// 1. `Error` already bounds `Display` as a supertrait, which would block composing strategies through types like [`WithContext`].
+pub trait Format<E: ?Sized> {
     /// Writes `error` and its source chain to `f` using the strategy.
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }

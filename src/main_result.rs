@@ -1,6 +1,8 @@
 use core::error::Error;
 use core::fmt;
 
+use crate::separator::{NewLine, WithSep};
+
 use super::{Format, Formatted, OneLine};
 
 /// A result type that wraps an error with [Formatted] and [DisplaySwapDebug] to output from the `main` function.
@@ -10,6 +12,20 @@ use super::{Format, Formatted, OneLine};
 /// The success type `T` defaults to `()`; pass `ExitCode` or another type to return from `main`.
 pub type MainResult<E, F = OneLine, T = ()> =
     core::result::Result<T, DisplaySwapDebug<Formatted<E, F>>>;
+
+/// A result type that wraps an error with [Formatted] and [DisplaySwapDebug] to output from the `main` function, with an additional suggestion.
+///
+/// See [`MainResult`] for details on the type parameters.
+/// The suggestion is rendered after the error, separated by a newline. To customize the separator, use `MainResult` with a custom `Format` that combines the error and suggestion as desired.
+pub type MainResultWithSuggestion<E, F = OneLine, T = ()> =
+    core::result::Result<T, DisplaySwapDebug<Formatted<E, WithSuggestion<F, NewLine>>>>;
+
+/// A helper type to combine an error format strategy `F` with a suggestion, separated by `Sep`.
+/// Used by `MainResultWithSuggestion` to render the error and suggestion together.
+/// `F` defaults to [`OneLine`] and `Sep` defaults to a newline, but you can customize both to achieve different layouts.
+///
+/// Equivalent to [`WithSep<F, Sep, Suggestion>`].
+pub type WithSuggestion<F = OneLine, Sep = NewLine> = WithSep<F, Sep, crate::Suggestion>;
 
 /// Wrapper that swaps an inner type's [`fmt::Debug`] and [`fmt::Display`] impls.
 ///
@@ -59,8 +75,27 @@ impl<E: Error, F: Format<E>> From<E> for DisplaySwapDebug<Formatted<E, F>> {
 
 #[cfg(test)]
 mod tests {
+    use thiserror::Error as ThisError;
+
     use super::*;
-    use crate::tests::Error;
+    use crate::{Suggest, separator::Space, tests::Error};
+
+    #[derive(ThisError, Debug)]
+    enum SugError {
+        #[error("env file missing")]
+        NoEnv,
+        #[error("something else")]
+        Other,
+    }
+
+    impl Suggest for SugError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::NoEnv => f.write_str("Did you mean rename the .env.example file to .env?"),
+                Self::Other => Ok(()),
+            }
+        }
+    }
 
     struct Foo;
 
@@ -111,6 +146,70 @@ mod tests {
             )))
             .to_string(),
             "One"
+        );
+    }
+
+    #[test]
+    fn test_with_suggestion_renders_error_then_hint() {
+        let formatted = Formatted::<_, WithSuggestion>::new(SugError::NoEnv);
+        assert_eq!(
+            formatted.to_string(),
+            "env file missing\nDid you mean rename the .env.example file to .env?"
+        );
+    }
+
+    #[test]
+    fn test_with_suggestion_empty_hint_keeps_separator() {
+        let formatted = Formatted::<_, WithSuggestion>::new(SugError::Other);
+        assert_eq!(formatted.to_string(), "something else\n");
+    }
+
+    #[test]
+    fn test_with_suggestion_custom_separator() {
+        let formatted = Formatted::<_, WithSuggestion<OneLine, Space>>::new(SugError::NoEnv);
+        assert_eq!(
+            formatted.to_string(),
+            "env file missing Did you mean rename the .env.example file to .env?"
+        );
+    }
+
+    #[test]
+    fn test_main_result_with_suggestion_question_mark() {
+        fn run(err: bool) -> MainResultWithSuggestion<SugError> {
+            if err {
+                Err(SugError::NoEnv)?;
+            }
+            Ok(())
+        }
+
+        run(false).unwrap();
+        let wrapped = run(true).unwrap_err();
+        // Debug of DisplaySwapDebug forwards to inner Display = error chain + \n + hint.
+        assert_eq!(
+            format!("{wrapped:?}"),
+            "env file missing\nDid you mean rename the .env.example file to .env?"
+        );
+        // Display of DisplaySwapDebug forwards to inner Debug = forwarded to the
+        // wrapped error's Debug (i.e. the original `SugError` Debug derive).
+        assert_eq!(wrapped.to_string(), "NoEnv");
+    }
+
+    #[test]
+    fn test_main_result_with_suggestion_exit_code() {
+        use std::process::ExitCode;
+
+        fn main_with_error(err: bool) -> MainResultWithSuggestion<SugError, OneLine, ExitCode> {
+            if err {
+                Err(SugError::NoEnv)?;
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+
+        assert_eq!(main_with_error(false).unwrap(), ExitCode::SUCCESS);
+        let wrapped = main_with_error(true).unwrap_err();
+        assert_eq!(
+            wrapped.0.to_string(),
+            "env file missing\nDid you mean rename the .env.example file to .env?"
         );
     }
 
