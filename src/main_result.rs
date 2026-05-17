@@ -17,6 +17,7 @@ pub type MainResult<E, F = OneLine, T = ()> =
 ///
 /// See [`MainResult`] for details on the type parameters.
 /// The suggestion is rendered after the error, separated by a newline. To customize the separator, use `MainResult` with a custom `Format` that combines the error and suggestion as desired.
+/// If [`Suggestion::fmt`](crate::Suggestion::fmt) produces an empty string, the separator is still printed.
 pub type MainResultWithSuggestion<E, F = OneLine, T = ()> =
     core::result::Result<T, DisplaySwapDebug<Formatted<E, WithSuggestion<F, NewLine>>>>;
 
@@ -25,6 +26,7 @@ pub type MainResultWithSuggestion<E, F = OneLine, T = ()> =
 /// `F` defaults to [`OneLine`] and `Sep` defaults to a newline, but you can customize both to achieve different layouts.
 ///
 /// Equivalent to [`WithSep<F, Sep, Suggestion>`].
+/// If [`Suggestion::fmt`](crate::Suggestion::fmt) produces an empty string, the separator is still printed.
 pub type WithSuggestion<F = OneLine, Sep = NewLine> = WithSep<F, Sep, crate::Suggestion>;
 
 /// Wrapper that swaps an inner type's [`fmt::Debug`] and [`fmt::Display`] impls.

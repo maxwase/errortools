@@ -52,7 +52,7 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// assert_eq!(w.to_string(), "step boom");
 /// ```
 ///
-/// ## Custom strategy via a an impl of `Format<WithContext<...>> for YourStrategy`
+/// ## Custom strategy via an impl of `Format<WithContext<...>> for YourStrategy`
 /// ```
 /// use core::fmt::{self, Display, Formatter};
 /// use errortools::{Format, WithContext};
