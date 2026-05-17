@@ -63,7 +63,7 @@ pub trait Format<E: ?Sized> {
 /// impl.
 ///
 /// Useful as a default in strategy-aware wrappers (e.g.
-#[cfg_attr(feature = "alloc", doc = "[`Listing`](crate::Listing)")]
+#[cfg_attr(feature = "alloc", doc = "[`Listing`]")]
 #[cfg_attr(not(feature = "alloc"), doc = "`Listing`")]
 /// ) when per-item formatting should defer to each item's own `Display` (and
 /// thus its own type-level strategy) rather than being overridden.
