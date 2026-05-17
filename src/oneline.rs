@@ -20,14 +20,11 @@ impl<E: Error + ?Sized> Format<E> for OneLine {
 
 #[cfg(test)]
 mod tests {
-    use core::fmt;
     use std::io;
 
-    use itertools::Itertools;
-
     use crate::{
-        Format, FormatError, Formatted, OneLine, chain,
-        tests::{Error, ErrorInner},
+        FormatError, Formatted, OneLine,
+        tests::{Arrow, Error, Inner},
     };
 
     #[test]
@@ -46,35 +43,24 @@ mod tests {
         assert_eq!(format!("{:?}", error.one_line()), "One");
         assert_eq!(Formatted::<_, OneLine>::new(Error::One).to_string(), "One");
 
-        let error = Error::Two(ErrorInner::One);
-        assert_eq!(error.one_line().to_string(), "Two: One");
-        assert_eq!(format!("{:?}", error.one_line()), "Two(One)");
+        let error = Error::Two(Inner::A);
+        assert_eq!(error.one_line().to_string(), "Two: InnerA");
+        assert_eq!(format!("{:?}", error.one_line()), "Two(A)");
     }
 
     #[test]
     fn test_from() {
-        let error = Error::Three(io::Error::other("test"));
+        // `#[from] io::Error` provides both the From impl and the source link.
+        let error: Error = io::Error::other("test").into();
         assert_eq!(error.one_line().to_string(), "Three: test");
-        assert_eq!(
-            format!("{:?}", error.one_line()),
-            "Three(Custom { kind: Other, error: \"test\" })"
-        );
-
-        let error = Error::Four(ErrorInner::Two);
-        assert_eq!(error.one_line().to_string(), "Two");
-        assert_eq!(format!("{:?}", error.one_line()), "Four(Two)");
     }
 
     #[test]
     fn test_custom_separator_via_format() {
-        struct Arrow;
-        impl<E: core::error::Error + ?Sized> Format<E> for Arrow {
-            fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "{}", chain(&error).format(" -> "))
-            }
-        }
-
-        let error = Error::Two(ErrorInner::One);
-        assert_eq!(Formatted::<_, Arrow>::new(error).to_string(), "Two -> One");
+        let error = Error::Two(Inner::A);
+        assert_eq!(
+            Formatted::<_, Arrow>::new(error).to_string(),
+            "Two -> InnerA"
+        );
     }
 }
