@@ -1,7 +1,10 @@
 use core::error::Error;
 use core::fmt;
 
-use crate::separator::{NewLine, WithSep};
+use crate::{
+    Add,
+    separator::{IfNonEmpty, NewLine},
+};
 
 use super::{Format, Formatted, OneLine};
 
@@ -27,7 +30,7 @@ pub type MainResultWithSuggestion<E, F = OneLine, T = ()> =
 ///
 /// Equivalent to [`WithSep<F, Sep, Suggestion>`].
 /// If [`Suggestion::fmt`](crate::Suggestion::fmt) produces an empty string, the separator is still printed.
-pub type WithSuggestion<F = OneLine, Sep = NewLine> = WithSep<F, Sep, crate::Suggestion>;
+pub type WithSuggestion<F = OneLine, Sep = NewLine> = Add<F, IfNonEmpty<Sep, crate::Suggestion>>;
 
 /// Wrapper that swaps an inner type's [`fmt::Debug`] and [`fmt::Display`] impls.
 ///

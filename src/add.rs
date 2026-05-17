@@ -60,7 +60,7 @@ pub mod separator {
 
     use crate::{Add, Format};
 
-    use core::fmt;
+    use core::{fmt, marker::PhantomData};
 
     /// [`Format`] strategy that writes a single line feed and ignores the input.
     ///
@@ -134,6 +134,76 @@ pub mod separator {
     /// `Add` of `L` and `R` with [`ColonSpace`] between — equivalent to
     /// [`WithSep<L, ColonSpace, R>`](WithSep).
     pub type WithColonSpace<L, R> = WithSep<L, ColonSpace, R>;
+
+    /// Conditional combinator: writes `Sep` then `Then`, but only if `Then`
+    /// would produce non-empty output.
+    ///
+    /// Use it to drop a trailing separator when the right-hand side is empty.
+    /// For example, `Add<OneLine, IfNonEmpty<NewLine, Suggestion>>` renders
+    /// `"<chain>\n<hint>"` when there's a hint and just `"<chain>"` when there
+    /// isn't (no stray trailing newline). [`WithSuggestion`](crate::WithSuggestion)
+    /// uses this internally so `MainResultWithSuggestion` doesn't print an
+    /// extra blank line for variants without a hint.
+    ///
+    /// `Then` is invoked twice — once against a probe writer that just
+    /// tracks emptiness, once against the real formatter. The strategy must
+    /// therefore be deterministic.
+    #[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct IfNonEmpty<Sep, Then>(PhantomData<fn() -> (Sep, Then)>);
+
+    impl<Sep: fmt::Debug + Default, Then: fmt::Debug + Default> fmt::Debug for IfNonEmpty<Sep, Then> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_tuple("IfNonEmpty")
+                .field(&Sep::default())
+                .field(&Then::default())
+                .finish()
+        }
+    }
+
+    impl<E, Sep, Then> Format<E> for IfNonEmpty<Sep, Then>
+    where
+        E: ?Sized,
+        Sep: Format<E>,
+        Then: Format<E>,
+    {
+        fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            // A `Display` wrapper so we can route `Then::fmt` through the
+            // standard `write!`/`fmt::write` machinery without needing to
+            // construct a `Formatter` ourselves (which is opaque in `core`).
+            struct ShowThen<'a, E: ?Sized, Then>(&'a E, PhantomData<fn() -> Then>);
+            impl<E: ?Sized, Then: Format<E>> fmt::Display for ShowThen<'_, E, Then> {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    Then::fmt(self.0, f)
+                }
+            }
+
+            // Writer that only tracks whether anything non-empty was written.
+            struct Probe(bool);
+            impl fmt::Write for Probe {
+                fn write_str(&mut self, s: &str) -> fmt::Result {
+                    if !s.is_empty() {
+                        self.0 = true;
+                    }
+                    Ok(())
+                }
+            }
+
+            let mut probe = Probe(false);
+            // `Probe::write_str` always returns `Ok`, so `core::fmt::write`
+            // can only fail if `Then::fmt` itself fails — which would be a
+            // bug in the strategy, not a probe issue. Propagate either way.
+            core::fmt::write(
+                &mut probe,
+                format_args!("{}", ShowThen::<E, Then>(error, PhantomData)),
+            )?;
+
+            if probe.0 {
+                Sep::fmt(error, f)?;
+                Then::fmt(error, f)?;
+            }
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -279,7 +349,28 @@ mod tests {
     }
 
     #[test]
-    fn test_add_sep_generic_alias() {
+    fn test_if_non_empty_with_writing_rhs() {
+        use separator::IfNonEmpty;
+        let error = SugError::NoEnv;
+        assert_eq!(
+            Formatted::<_, Add<OneLine, IfNonEmpty<NewLine, Suggestion>>>::new(error).to_string(),
+            "env file missing\nDid you mean rename the .env.example file to .env?"
+        );
+    }
+
+    #[test]
+    fn test_if_non_empty_with_silent_rhs() {
+        use separator::IfNonEmpty;
+        // Suggest::fmt writes nothing, so neither Sep nor Then is emitted.
+        let error = SugError::Other;
+        assert_eq!(
+            Formatted::<_, Add<OneLine, IfNonEmpty<NewLine, Suggestion>>>::new(error).to_string(),
+            "something else"
+        );
+    }
+
+    #[test]
+    fn test_with_sep_generic_alias() {
         use separator::Colon;
         let error = crate::tests::Error::One;
         assert_eq!(
