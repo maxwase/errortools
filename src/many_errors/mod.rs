@@ -181,28 +181,21 @@ where
 mod tests {
     use std::{io, ops::ControlFlow};
 
-    use thiserror::Error;
-
     use super::*;
-    use crate::{FormatError, OneLine, Tree};
+    use crate::{
+        FormatError, OneLine, Tree,
+        tests::{Inner, Mid, WcArrow},
+    };
 
-    #[derive(Error, Debug, Clone, PartialEq, Eq)]
-    #[error("leaf")]
-    struct Leaf;
-
-    #[derive(Error, Debug, Clone, PartialEq, Eq)]
-    #[error("mid")]
-    struct Mid(#[source] Leaf);
-
-    fn w(ctx: &'static str) -> WithContext<&'static str, Leaf> {
-        WithContext::new(ctx, Leaf)
+    fn w(ctx: &'static str) -> WithContext<&'static str, Inner> {
+        WithContext::new(ctx, Inner::A)
     }
 
     // --- push / variants ---
 
     #[test]
     fn test_new_is_none() {
-        let e = ManyErrors::<&str, Leaf>::new();
+        let e = ManyErrors::<&str, Inner>::new();
         assert!(matches!(e, ManyErrors::None));
         assert!(e.is_empty());
         assert_eq!(e.len(), 0);
@@ -227,9 +220,9 @@ mod tests {
 
     #[test]
     fn test_push_many_grows() {
-        let mut e: ManyErrors<u32, Leaf> = ManyErrors::new();
+        let mut e: ManyErrors<u32, Inner> = ManyErrors::new();
         for i in 0..5u32 {
-            e.push(WithContext::new(i, Leaf));
+            e.push(WithContext::new(i, Inner::A));
         }
         assert_eq!(e.len(), 5);
     }
@@ -238,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_into_result_none_ok() {
-        let e = ManyErrors::<&str, Leaf>::new();
+        let e = ManyErrors::<&str, Inner>::new();
         assert_eq!(e.into_result(42), Ok(42));
     }
 
@@ -261,13 +254,14 @@ mod tests {
 
     #[test]
     fn test_collect_from_with_context() {
-        let errs: ManyErrors<&str, Leaf> = [w("a"), w("b"), w("c")].into_iter().collect();
+        let errs: ManyErrors<&str, Inner> = [w("a"), w("b"), w("c")].into_iter().collect();
         assert_eq!(errs.len(), 3);
     }
 
     #[test]
     fn test_collect_from_tuples() {
-        let errs: ManyErrors<&str, Leaf> = [("a", Leaf), ("b", Leaf)].into_iter().collect();
+        let errs: ManyErrors<&str, Inner> =
+            [("a", Inner::A), ("b", Inner::A)].into_iter().collect();
         assert_eq!(errs.len(), 2);
     }
 
@@ -282,9 +276,9 @@ mod tests {
     fn test_extend_from_tuples_via_partition_result() {
         use itertools::Itertools as _;
 
-        let results: Vec<Result<i32, (&str, Leaf)>> =
-            vec![Ok(1), Err(("a", Leaf)), Ok(2), Err(("b", Leaf))];
-        let (oks, errs): (Vec<i32>, ManyErrors<&str, Leaf>) =
+        let results: Vec<Result<i32, (&str, Inner)>> =
+            vec![Ok(1), Err(("a", Inner::A)), Ok(2), Err(("b", Inner::A))];
+        let (oks, errs): (Vec<i32>, ManyErrors<&str, Inner>) =
             results.into_iter().partition_result();
         assert_eq!(oks, [1, 2]);
         assert_eq!(errs.len(), 2);
@@ -295,9 +289,9 @@ mod tests {
     #[test]
     fn test_control_flow_all_continue() {
         #[allow(clippy::type_complexity)]
-        let items: Vec<ControlFlow<WithContext<&str, Leaf>, WithContext<&str, Leaf>>> =
+        let items: Vec<ControlFlow<WithContext<&str, Inner>, WithContext<&str, Inner>>> =
             vec![ControlFlow::Continue(w("a")), ControlFlow::Continue(w("b"))];
-        let errs: ManyErrors<&str, Leaf> = items.into_iter().collect();
+        let errs: ManyErrors<&str, Inner> = items.into_iter().collect();
         assert_eq!(errs.len(), 2);
     }
 
@@ -307,12 +301,12 @@ mod tests {
         let iter = ["a", "b", "c", "d"].iter().map(|s| {
             count += 1;
             if *s == "b" {
-                ControlFlow::Break(WithContext::new(*s, Leaf))
+                ControlFlow::Break(WithContext::new(*s, Inner::A))
             } else {
-                ControlFlow::Continue(WithContext::new(*s, Leaf))
+                ControlFlow::Continue(WithContext::new(*s, Inner::A))
             }
         });
-        let errs: ManyErrors<&str, Leaf> = iter.collect();
+        let errs: ManyErrors<&str, Inner> = iter.collect();
         // "a" (continue), "b" (break) → stops; "c","d" not consumed
         assert_eq!(errs.len(), 2);
         assert_eq!(count, 2);
@@ -321,31 +315,19 @@ mod tests {
     #[test]
     fn test_control_flow_tuples() {
         #[allow(clippy::type_complexity)]
-        let items: Vec<ControlFlow<(&str, Leaf), (&str, Leaf)>> = vec![
-            ControlFlow::Continue(("a", Leaf)),
-            ControlFlow::Break(("b", Leaf)),
+        let items: Vec<ControlFlow<(&str, Inner), (&str, Inner)>> = vec![
+            ControlFlow::Continue(("a", Inner::A)),
+            ControlFlow::Break(("b", Inner::A)),
         ];
-        let errs: ManyErrors<&str, Leaf> = items.into_iter().collect();
+        let errs: ManyErrors<&str, Inner> = items.into_iter().collect();
         assert_eq!(errs.len(), 2);
     }
 
     // --- Display + Error ---
 
-    /// Per-item override used by formatter tests to verify
-    /// `Listing<G>` dispatches to `G` instead of each item's own Display.
-    #[derive(Debug)]
-    struct Arrow;
-    impl<C: Display, E: Display, WithContextFormat> Format<WithContext<C, E, WithContextFormat>>
-        for Arrow
-    {
-        fn fmt(w: &WithContext<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
-            write!(f, "{} -> {}", w.context, w.error)
-        }
-    }
-
     #[test]
     fn test_format_zero_errors() {
-        let e = ManyErrors::<&str, Leaf>::new();
+        let e = ManyErrors::<&str, Inner>::new();
 
         // Display (default Listing<AsDisplay>).
         assert_eq!(e.to_string(), "");
@@ -357,9 +339,9 @@ mod tests {
 
     #[test]
     fn test_format_one_error() {
-        // Mid → Leaf so OneLine / Tree have a chain to walk.
+        // Mid → Inner so OneLine / Tree have a chain to walk.
         let mut e: ManyErrors<&str, Mid> = ManyErrors::new();
-        e.push(WithContext::new("ctx", Mid(Leaf)));
+        e.push(WithContext::new("ctx", Mid::Inner(Inner::A)));
 
         // Default WithContextFormat = Colon → "{context}: {error}".
         assert_eq!(e.to_string(), "ctx: mid");
@@ -367,79 +349,82 @@ mod tests {
         // Listing<OneLine> walks the chain.
         assert_eq!(
             e.formatted::<Listing<OneLine>>().to_string(),
-            "ctx: mid: leaf"
+            "ctx: mid: InnerA"
         );
         assert_eq!(
             e.formatted::<Listing<Tree>>().to_string(),
-            "ctx: mid\n└── leaf",
+            "ctx: mid\n└── InnerA",
         );
 
-        // Per-item WithContextFormat override (Arrow) — affects items' own
+        // Per-item WithContextFormat override (WcArrow) — affects items' own
         // Display, which is what Listing<AsDisplay> defers to.
         let mut a: ManyErrors<&str, Mid, _> = ManyErrors::new();
-        a.push(WithContext::<_, _, Arrow>::new("ctx", Mid(Leaf)));
+        a.push(WithContext::<_, _, WcArrow>::new(
+            "ctx",
+            Mid::Inner(Inner::A),
+        ));
         assert_eq!(a.to_string(), "ctx -> mid");
         assert_eq!(a.formatted::<Listing>().to_string(), "ctx -> mid");
         // Listing<OneLine> does NOT fully override: OneLine walks the Error
         // chain, whose first element is the WithContext itself — and that
-        // WithContext's Display still fires its own F=Arrow. Limitation.
+        // WithContext's Display still fires its own F=WcArrow. Limitation.
         assert_eq!(
             a.formatted::<Listing<OneLine>>().to_string(),
-            "ctx -> mid: leaf",
+            "ctx -> mid: InnerA",
         );
         assert_eq!(
             a.formatted::<Listing<Tree>>().to_string(),
-            "ctx -> mid\n└── leaf",
+            "ctx -> mid\n└── InnerA",
         );
     }
 
     #[test]
     fn test_format_many_errors() {
         let mut e: ManyErrors<&str, Mid> = ManyErrors::new();
-        e.push(WithContext::new("a", Mid(Leaf)));
-        e.push(WithContext::new("b", Mid(Leaf)));
-        e.push(WithContext::new("c", Mid(Leaf)));
+        e.push(WithContext::new("a", Mid::Inner(Inner::A)));
+        e.push(WithContext::new("b", Mid::Inner(Inner::A)));
+        e.push(WithContext::new("c", Mid::Inner(Inner::A)));
 
         assert_eq!(e.to_string(), "a: mid\nb: mid\nc: mid");
         assert_eq!(e.formatted::<Listing>().to_string(), e.to_string());
         assert_eq!(
             e.formatted::<Listing<OneLine>>().to_string(),
-            "a: mid: leaf\nb: mid: leaf\nc: mid: leaf",
+            "a: mid: InnerA\nb: mid: InnerA\nc: mid: InnerA",
         );
         assert_eq!(
             e.formatted::<Listing<Tree>>().to_string(),
-            "a: mid\n└── leaf\nb: mid\n└── leaf\nc: mid\n└── leaf",
+            "a: mid\n└── InnerA\nb: mid\n└── InnerA\nc: mid\n└── InnerA",
         );
 
-        // Arrow override on items.
+        // WcArrow override on items.
         let mut a: ManyErrors<&str, Mid, _> = ManyErrors::new();
-        a.push(WithContext::<_, _, Arrow>::new("a", Mid(Leaf)));
-        a.push(WithContext::<_, _, Arrow>::new("b", Mid(Leaf)));
+        a.push(WithContext::<_, _, WcArrow>::new("a", Mid::Inner(Inner::A)));
+        a.push(WithContext::<_, _, WcArrow>::new("b", Mid::Inner(Inner::A)));
         assert_eq!(a.to_string(), "a -> mid\nb -> mid");
         assert_eq!(
             a.formatted::<Listing<OneLine>>().to_string(),
-            "a -> mid: leaf\nb -> mid: leaf",
+            "a -> mid: InnerA\nb -> mid: InnerA",
         );
         assert_eq!(
             a.formatted::<Listing<Tree>>().to_string(),
-            "a -> mid\n└── leaf\nb -> mid\n└── leaf",
+            "a -> mid\n└── InnerA\nb -> mid\n└── InnerA",
         );
     }
 
     #[test]
     fn test_source_none() {
-        let e = ManyErrors::<&str, Leaf>::new();
+        let e = ManyErrors::<&str, Inner>::new();
         assert!(e.source().is_none());
     }
 
     #[test]
     fn test_source_one_skips_inner_error() {
         let mut e: ManyErrors<&str, Mid> = ManyErrors::new();
-        e.push(WithContext::new("ctx", Mid(Leaf)));
-        // Display already shows "ctx: mid"; source returns Mid's source (&Leaf)
+        e.push(WithContext::new("ctx", Mid::Inner(Inner::A)));
+        // Display already shows "ctx: mid"; source returns Mid's source (&Inner::A)
         // so chain walkers don't repeat "mid".
         let src = e.source().expect("should have source");
-        assert_eq!(src.to_string(), "leaf");
+        assert_eq!(src.to_string(), "InnerA");
     }
 
     #[test]
@@ -453,15 +438,15 @@ mod tests {
     #[test]
     fn test_one_line_one_walks_chain() {
         let mut e: ManyErrors<&str, Mid> = ManyErrors::new();
-        e.push(WithContext::new("ctx", Mid(Leaf)));
-        assert_eq!(e.one_line().to_string(), "ctx: mid: leaf");
+        e.push(WithContext::new("ctx", Mid::Inner(Inner::A)));
+        assert_eq!(e.one_line().to_string(), "ctx: mid: InnerA");
     }
 
     // --- iter ---
 
     #[test]
     fn test_iter_none() {
-        let e = ManyErrors::<&str, Leaf>::new();
+        let e = ManyErrors::<&str, Inner>::new();
         assert_eq!(e.iter().count(), 0);
     }
 

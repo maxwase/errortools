@@ -230,84 +230,69 @@ mod format {
 
 #[cfg(test)]
 mod tests {
-    use std::{error::Error as _, io};
+    use std::io;
 
     use thiserror::Error;
 
     use super::*;
-    use crate::FormatError;
-
-    #[derive(Error, Debug)]
-    #[error("leaf error")]
-    struct Leaf;
-
-    #[derive(Error, Debug)]
-    #[error("middle")]
-    struct Middle(#[source] Leaf);
-
-    /// Custom one-shot strategy: `[ctx] err`.
-    struct Bracketed;
-    impl<C: Display, E: Display, WithContextFormat> Format<WithContext<C, E, WithContextFormat>>
-        for Bracketed
-    {
-        fn fmt(w: &WithContext<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
-            write!(f, "[{}] {}", w.context, w.error)
-        }
-    }
+    use crate::{
+        FormatError,
+        tests::{Bracketed, Inner, Mid, WcArrow},
+    };
 
     /// Caller-facing error in this test module. The `#[from]` impl is what
     /// drives `WithContextFormat = Bracketed` inference at the `?` site in [`returning_error`].
     #[derive(Error, Debug)]
     #[error("an error happened")]
-    pub struct Error(#[from] WithContext<&'static str, Middle, Bracketed>);
+    pub struct PropError(#[from] WithContext<&'static str, Mid, Bracketed>);
 
-    fn returning_middle() -> Result<(), Middle> {
-        Err(Middle(Leaf))
+    fn returning_middle() -> Result<(), Mid> {
+        Err(Mid::Inner(Inner::A))
     }
 
     /// Realistic use: a function tags an inner error with context via
     /// `map_err`, then `?` routes it through `#[from]` into the caller's
     /// error type.
     /// Most importantly, `WithContextFormat` is inferred from the `From` impl on `Error`.
-    fn returning_error() -> Result<(), Error> {
+    fn returning_error() -> Result<(), PropError> {
         returning_middle().map_err(|e| WithContext::new("context", e))?;
         Ok(())
     }
 
     #[test]
     fn test_new_and_fields() {
-        let w = WithContextColon::new("ctx", Leaf);
+        let w = WithContextColon::new("ctx", Inner::A);
         assert_eq!(w.context, "ctx");
     }
 
     #[test]
     fn test_from_tuple() {
-        let w: WithContextColon<&str, Leaf> = ("ctx", Leaf).into();
+        let w: WithContextColon<&str, Inner> = ("ctx", Inner::A).into();
         assert_eq!(w.context, "ctx");
     }
 
     #[test]
     fn test_display_default_format() {
-        let w = WithContextColon::new("step 3", Leaf);
-        assert_eq!(w.to_string(), "step 3: leaf error");
+        let w = WithContextColon::new("step 3", Inner::A);
+        assert_eq!(w.to_string(), "step 3: InnerA");
     }
 
     #[test]
     fn test_source_skips_inner_error() {
-        // Leaf has no source, so skipping it yields None.
-        let w = WithContextColon::new("ctx", Leaf);
+        // Inner::A has no source, so skipping it yields None.
+        let w = WithContextColon::new("ctx", Inner::A);
         assert!(w.source().is_none());
 
-        // For Middle(Leaf), source must be Leaf — not Middle (which Display already shows).
-        let w = WithContextColon::new("ctx", Middle(Leaf));
+        // For Mid::Inner(Inner::A), source must be Inner — not Mid (which Display already shows).
+        let w = WithContextColon::new("ctx", Mid::Inner(Inner::A));
         let src = w.source().expect("source must be Some");
-        assert_eq!(src.to_string(), "leaf error");
+        assert_eq!(src.to_string(), "InnerA");
     }
 
     #[test]
     fn test_one_line_walks_full_chain() {
-        let w = WithContextColon::new("ctx", Middle(Leaf));
-        assert_eq!(w.one_line().to_string(), "ctx: middle: leaf error");
+        let w = WithContextColon::new("ctx", Mid::Inner(Inner::A));
+        assert_eq!(w.one_line().to_string(), "ctx: mid: InnerA");
     }
 
     #[test]
@@ -319,28 +304,19 @@ mod tests {
 
     #[test]
     fn test_custom_format_strategy() {
-        struct Arrow;
-        impl<C: Display, E: Display, WithContextFormat> Format<WithContext<C, E, WithContextFormat>>
-            for Arrow
-        {
-            fn fmt(w: &WithContext<C, E, WithContextFormat>, f: &mut Formatter<'_>) -> fmt::Result {
-                write!(f, "{} -> {}", w.context, w.error)
-            }
-        }
-
-        let w = WithContext::<_, _, Arrow>::new("step", Leaf);
-        assert_eq!(w.to_string(), "step -> leaf error");
+        let w = WithContext::<_, _, WcArrow>::new("step", Inner::A);
+        assert_eq!(w.to_string(), "step -> InnerA");
     }
 
     #[test]
     fn test_custom_format_affects_one_line() {
-        let w = WithContext::<_, _, Bracketed>::new("ctx", Middle(Leaf));
-        // Display: "[ctx] middle" — then chain appends ": leaf error" via source.
-        assert_eq!(w.one_line().to_string(), "[ctx] middle: leaf error");
+        let w = WithContext::<_, _, Bracketed>::new("ctx", Mid::Inner(Inner::A));
+        // Display: "[ctx] mid" — then chain appends ": InnerA" via source.
+        assert_eq!(w.one_line().to_string(), "[ctx] mid: InnerA");
     }
 
     /// End-to-end: `map_err` wraps an inner error with [`WithContext`], `?`
-    /// fires `From<WithContext<_, _, Bracketed>> for Error` (and pins
+    /// fires `From<WithContext<_, _, Bracketed>> for PropError` (and pins
     /// `WithContextFormat`), and the full chain comes out via
     /// [`FormatError::one_line`] without any duplication thanks to `source`
     /// skipping the inner error.
@@ -350,7 +326,7 @@ mod tests {
         assert_eq!(err.to_string(), "an error happened");
         assert_eq!(
             err.one_line().to_string(),
-            "an error happened: [context] middle: leaf error",
+            "an error happened: [context] mid: InnerA",
         );
     }
 
@@ -377,7 +353,7 @@ mod tests {
         use crate::separator::WithSpace;
         type SpacePair = WithSpace<ContextField, ErrorField>;
 
-        let w = WithContext::<_, _, SpacePair>::new("ctx", Leaf);
-        assert_eq!(w.to_string(), "ctx leaf error");
+        let w = WithContext::<_, _, SpacePair>::new("ctx", Inner::A);
+        assert_eq!(w.to_string(), "ctx InnerA");
     }
 }

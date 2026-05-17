@@ -85,7 +85,7 @@ mod tests {
 
     use crate::{
         Format, FormatError, Formatted, Tree, TreeIndent, TreeMarker, chain,
-        tests::{Error, ErrorInner},
+        tests::{Error, Inner},
     };
 
     #[test]
@@ -96,21 +96,21 @@ mod tests {
 
     #[test]
     fn test_tree_one_source() {
-        let error = Error::Two(ErrorInner::One);
-        assert_eq!(error.tree().to_string(), "Two\n└── One");
+        let error = Error::Two(Inner::A);
+        assert_eq!(error.tree().to_string(), "Two\n└── InnerA");
     }
 
     #[test]
     fn test_tree_nested() {
-        let error = Error::Two(ErrorInner::Two);
-        assert_eq!(error.tree().to_string(), "Two\n└── Two");
+        let error = Error::Two(Inner::B);
+        assert_eq!(error.tree().to_string(), "Two\n└── InnerB");
     }
 
     #[test]
     fn test_tree_custom_marker_and_indent() {
         #[derive(Default)]
-        struct Arrow;
-        impl fmt::Display for Arrow {
+        struct ArrowMarker;
+        impl fmt::Display for ArrowMarker {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("|-> ")
             }
@@ -124,10 +124,10 @@ mod tests {
             }
         }
 
-        let error = Error::Two(ErrorInner::One);
+        let error = Error::Two(Inner::A);
         assert_eq!(
-            Formatted::<_, Tree<Arrow, TwoSpace>>::new(error).to_string(),
-            "Two\n|-> One"
+            Formatted::<_, Tree<ArrowMarker, TwoSpace>>::new(error).to_string(),
+            "Two\n|-> InnerA"
         );
     }
 
@@ -168,10 +168,10 @@ mod tests {
             }
         }
 
-        let error = Error::Two(ErrorInner::One);
+        let error = Error::Two(Inner::A);
         assert_eq!(
             Formatted::<_, AsciiTree>::new(error).to_string(),
-            "Two\n|-- One"
+            "Two\n|-- InnerA"
         );
     }
 }
