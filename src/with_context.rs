@@ -22,8 +22,8 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// `Display` delegates to `WithContextFormat::fmt(self, f)`, so any
 /// `WithContextFormat: Format<WithContext<C, E, WithContextFormat>>`
 /// can format the pair. Strategies are usually built by composing the field
-/// extractors [`ContextField`] / [`ErrorField`] (or [`ContextPath`] when
-/// `C: AsRef<Path>`) with separator strategies via
+/// extractors [`ContextField`] / [`ErrorField`] (or `ContextPath` when
+/// `C: AsRef<Path>`, requires `std`) with separator strategies via
 /// [`Add`](crate::Add) / [`WithSep`](crate::separator::WithSep), e.g. the default
 /// [`Colon`] is [`WithColonSpace<ContextField, ErrorField>`](crate::separator::WithColonSpace).
 ///
