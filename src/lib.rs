@@ -8,30 +8,47 @@
 
 use core::{error::Error, fmt, iter, marker::PhantomData};
 
+mod add;
 mod main_result;
 mod oneline;
 #[cfg(feature = "std")]
 pub mod path_display;
+mod suggestion;
 mod tree;
 pub mod with_context;
 
-pub use main_result::{DisplaySwapDebug, MainResult};
+pub use add::{Add, separator};
+pub use main_result::{DisplaySwapDebug, MainResult, MainResultWithSuggestion, WithSuggestion};
 pub use oneline::OneLine;
 #[cfg(feature = "std")]
 pub use path_display::DisplayPath;
+pub use suggestion::{Suggest, Suggestion};
 pub use tree::{Tree, TreeIndent, TreeMarker};
 pub use with_context::WithContext;
 
-/// A static strategy for formatting an error and its source chain.
+/// A static strategy for formatting a value to a [`fmt::Formatter`].
 ///
-/// Implement on a unit type to define a custom format. Use [`chain`] to walk
-/// the error and its sources.
+/// Usually, the error is traversed via [`chain`] to format the entire source chain,
+/// but this is not required — the strategy can choose to ignore the chain or format
+/// non-error types as well.
+/// For example, an implementation of [`Format<WithContext<C, E, F>>`] can format the context
+/// and error fields of [`WithContext`] with field extractors like
+/// [`ContextField`](crate::with_context::ContextField) and [`ErrorField`](crate::with_context::ErrorField)
+/// without walking the source chain at all.
+///
+/// `E` is the value being formatted; each strategy declares its own bounds:
+/// [`OneLine`] and [`Tree`] require `E: Error`, [`Suggestion`] additionally
+/// requires [`Suggest`], and field extractors like
+/// [`ContextField`](crate::with_context::ContextField) require `E` to be a
+/// specific shape. The trait itself imposes nothing beyond `?Sized` so
+/// strategies can format non-error pairs (e.g. [`WithContext`]).
+///
 /// We cannot rely on `fmt::*` traits because:
-/// 1. They have accept &self
-/// 1. `Error` is already bound by it
-pub trait Format {
+/// 1. They accept &self
+/// 1. `Error` already bounds `Display` as a supertrait, which would block composing strategies through types like [`WithContext`].
+pub trait Format<E: ?Sized> {
     /// Writes `error` and its source chain to `f` using the strategy.
-    fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+    fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
 /// Iterator over an error and its source chain.
@@ -54,8 +71,17 @@ pub trait FormatError {
         self.formatted::<Tree>()
     }
 
+    /// Renders the error's [`Suggestion`] hint. Only the top-level error is
+    /// printed; the source chain is not walked.
+    fn suggestion(&self) -> Formatted<&Self, Suggestion>
+    where
+        Self: Suggest,
+    {
+        self.formatted::<Suggestion>()
+    }
+
     /// Formats the error using a custom [`Format`] strategy.
-    fn formatted<F: Format>(&self) -> Formatted<&Self, F> {
+    fn formatted<F>(&self) -> Formatted<&Self, F> {
         Formatted::new(self)
     }
 }
@@ -70,15 +96,15 @@ impl<E: Error + ?Sized> FormatError for E {}
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Formatted<E, F = OneLine>(E, PhantomData<fn() -> F>);
 
-impl<E, F: Format> Formatted<E, F> {
+impl<E, F> Formatted<E, F> {
     /// Wraps `error` so its `Display` impl uses the [`Format`] strategy `F`.
-    pub fn new(error: E) -> Self {
+    pub const fn new(error: E) -> Self {
         Formatted(error, PhantomData)
     }
 }
 
 /// Renders the wrapped error via the strategy `F`.
-impl<E: Error, F: Format> fmt::Display for Formatted<E, F> {
+impl<E: Error, F: Format<E>> fmt::Display for Formatted<E, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         F::fmt(&self.0, f)
     }
@@ -185,8 +211,8 @@ pub(crate) mod tests {
     #[test]
     fn test_custom_format() {
         struct Upper;
-        impl Format for Upper {
-            fn fmt(error: &dyn core::error::Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        impl<E: core::error::Error + ?Sized> Format<E> for Upper {
+            fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "{}", error.to_string().to_uppercase())
             }
         }

@@ -120,11 +120,17 @@ fn create_with_retry(
 You can nest the two: wrap a `WithContext<usize, io::Error>` inside a `WithPath<&Path, WithContext<usize, io::Error>>` and the chain prints `<path>: <attempt>: <io error>`.
 The [`with_context`](https://github.com/maxwase/errortools/blob/master/examples/with_context.rs) example shows that through `MainResult` end-to-end.
 
-Need a different look? Implement `ContextFormat<C, E>` (re-exported as
-`errortools::with_context::ContextFormat`) on a unit type and plug it in
-with `WithContext<C, E, MyFmt>`. The bounds are yours: `Colon` asks for
-`Display`, `PathColon` asks for `AsRef<Path>`, you ask for whatever you
-need.
+Need a different look? `WithContext` formats through any `F: Format<WithContext<C, E, F>>`,
+so there are two ways to customize it:
+
+1. **Compose** with the built-in field extractors and separators:
+   `type SpacePair = WithSpace<ContextField, ErrorField>;` swaps `": "`
+   for a single space. Same recipe for any delimiter you can write as a
+   `Format` tag.
+2. **Write a one-shot impl** when the layout is unusual:
+   `impl<C: Display, E: Display, F> Format<WithContext<C, E, F>> for MyFmt { ... }`.
+   You declare your own bounds — `Colon` asks for `Display`, `PathColon` asks
+   for `AsRef<Path>`, you ask for whatever you need.
 
 ## But why?
 
@@ -164,7 +170,7 @@ if let Err(e) = do_thing() {
 
 ## Custom formats
 
-Implement the `Format` trait on a unit type:
+Implement the `Format<E>` trait on a unit type. `E` is generic so your strategy can require extra bounds on the error type (e.g. `Suggest` for the suggestion strategy):
 
 ```rust,ignore
 use core::{error::Error, fmt};
@@ -172,14 +178,89 @@ use errortools::{Format, FormatError, chain};
 use itertools::Itertools;
 
 struct Arrow;
-impl Format for Arrow {
-    fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", chain(error).format(" -> "))
+impl<E: Error + ?Sized> Format<E> for Arrow {
+    fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", chain(&error).format(" -> "))
     }
 }
 
 println!("{}", my_error.formatted::<Arrow>()); // outer -> middle -> inner
 ```
+
+## Combining strategies
+
+`Add<L, R>` glues two `Format` strategies together. Both run against the same value, left then right. There's no built-in separator, drop a separator strategy (`NewLine`, `Space`, `Colon`, `ColonSpace`, `Empty`) in between, or reach for the three-arg `WithSep<L, Sep, R>` alias when you'd otherwise nest:
+
+```rust,ignore
+use errortools::{Formatted, OneLine, Suggestion, separator::{NewLine, WithSep}};
+
+// Same as Add<Add<OneLine, NewLine>, Suggestion>. Renders:
+// "<one-line chain>\n<top-level suggestion>"
+type Brief = WithSep<OneLine, NewLine, Suggestion>;
+
+eprintln!("{}", Formatted::<_, Brief>::new(err));
+```
+
+For the common separators there are zero-think aliases — `WithSpace<L, R>`,
+`WithNewLine<L, R>`, `WithColonSpace<L, R>` — all in `errortools::separator`:
+
+```rust,ignore
+use errortools::{Formatted, OneLine, Suggestion, separator::WithNewLine};
+
+type Brief = WithNewLine<OneLine, Suggestion>;
+eprintln!("{}", Formatted::<_, Brief>::new(err));
+```
+
+Bounds compose: `Add<OneLine, Suggestion>` only implements `Format<E>` when
+`E: Error + Suggest`, because `Suggestion`'s impl carries that bound.
+
+The same combinator powers the `WithContext` default — `Colon` is just a type
+alias for `WithColonSpace<ContextField, ErrorField>`, where
+`ContextField`/`ErrorField` are extractor strategies that read the pair's
+fields. To get a different delimiter, swap one piece:
+
+```rust,ignore
+use errortools::{WithContext, separator::WithSpace, with_context::{ContextField, ErrorField}};
+
+type SpacePair = WithSpace<ContextField, ErrorField>;
+let w = WithContext::<_, _, SpacePair>::new("step", "boom");
+assert_eq!(w.to_string(), "step boom");
+```
+
+## Suggestions
+
+For "Did you mean…" hints, implement `Suggest` on your error type and call
+`error.suggestion()`:
+
+```rust,ignore
+use core::fmt;
+use errortools::{FormatError, Suggest};
+
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error("Config file missing")]
+    NoConfig,
+    #[error("Network down")]
+    Network,
+}
+
+impl Suggest for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoConfig => f.write_str("Did you copy config.example.toml to config.toml?"),
+            Self::Network => Ok(()),
+        }
+    }
+}
+
+eprintln!("{}\n{}", Error::NoConfig.one_line(), Error::NoConfig.suggestion());
+// Config file missing
+// Did you copy config.example.toml to config.toml?
+```
+
+Only the top-level error's hint is printed, the source chain isn't walked. This decision is intentional: The underlying hint may be irrelevant in the context of the top-level error, and printing it may just add noise.
+
+The idea is that every error that is supposed to have a suggestion should implement `Suggest` and then later the top-level error's suggestion may concatenate the inner hint if it's relevant with nesting matching the error chain.
 
 ## How it works
 

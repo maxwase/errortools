@@ -44,16 +44,16 @@ pub struct Tree<M = TreeMarker, I = TreeIndent>(PhantomData<fn() -> (M, I)>);
 /// Walks the source chain. Prints the top error on its own line, then each
 /// source on a new line preceded by `(depth - 1)` repetitions of `I` followed
 /// by `M`.
-impl<M, I> Format for Tree<M, I>
+impl<E: Error + ?Sized, M, I> Format<E> for Tree<M, I>
 where
     M: fmt::Display + Default,
     I: fmt::Display + Default,
 {
-    fn fmt(error: &dyn Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let marker = M::default();
         let indent = I::default();
         let formatted =
-            chain(error)
+            chain(&error)
                 .enumerate()
                 .format_with("\n", |(depth, e), write| match depth {
                     0 => write(&format_args!("{e}")),
@@ -156,9 +156,9 @@ mod tests {
     #[test]
     fn test_custom_tree_via_format() {
         struct AsciiTree;
-        impl Format for AsciiTree {
-            fn fmt(error: &dyn core::error::Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let formatted = chain(error)
+        impl<E: core::error::Error + ?Sized> Format<E> for AsciiTree {
+            fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let formatted = chain(&error)
                     .enumerate()
                     .format_with("\n", |(depth, e), write| match depth {
                         0 => write(&format_args!("{e}")),
