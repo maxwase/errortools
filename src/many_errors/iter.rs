@@ -1,35 +1,51 @@
 // --- Iter ---
 
-use crate::{ManyErrors, WithContext, with_context::Colon};
+use core::ops::ControlFlow;
 
-impl<C, E, WithContextFormat> ManyErrors<C, E, WithContextFormat> {
-    /// Returns an iterator over references to each recorded [`WithContext`].
-    pub fn iter(&self) -> Iter<'_, C, E, WithContextFormat> {
+use crate::{
+    ManyErrors,
+    with_context::{Colon, ContextField, WithContext},
+};
+
+use super::Node;
+
+impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
+    /// Returns an iterator over references to each direct [`Node`] child.
+    pub fn iter(&self) -> Iter<'_, C, E, GC, F, GF> {
         Iter::new(self)
     }
 }
 
-/// Iterator over references to each [`WithContext`] in a [`ManyErrors`].
-pub struct Iter<'a, C, E, WithContextFormat = Colon>(IterInner<'a, C, E, WithContextFormat>);
+impl<'a, C, E, GC, F, GF> IntoIterator for &'a ManyErrors<C, E, GC, F, GF> {
+    type Item = &'a Node<C, E, GC, F, GF>;
+    type IntoIter = Iter<'a, C, E, GC, F, GF>;
 
-enum IterInner<'a, C, E, WithContextFormat> {
-    Empty,
-    One(Option<&'a WithContext<C, E, WithContextFormat>>),
-    Many(core::slice::Iter<'a, WithContext<C, E, WithContextFormat>>),
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
-impl<'a, C, E, WithContextFormat> Iter<'a, C, E, WithContextFormat> {
-    fn new(many: &'a ManyErrors<C, E, WithContextFormat>) -> Self {
+/// Iterator over references to the direct [`Node`] children of a [`ManyErrors`].
+pub struct Iter<'a, C, E, GC = C, F = Colon, GF = ContextField>(IterInner<'a, C, E, GC, F, GF>);
+
+enum IterInner<'a, C, E, GC, F, GF> {
+    Empty,
+    One(Option<&'a Node<C, E, GC, F, GF>>),
+    Many(core::slice::Iter<'a, Node<C, E, GC, F, GF>>),
+}
+
+impl<'a, C, E, GC, F, GF> Iter<'a, C, E, GC, F, GF> {
+    fn new(many: &'a ManyErrors<C, E, GC, F, GF>) -> Self {
         Self(match many {
             ManyErrors::None => IterInner::Empty,
-            ManyErrors::One(w) => IterInner::One(Some(w)),
+            ManyErrors::One(n) => IterInner::One(Some(n)),
             ManyErrors::Many(v) => IterInner::Many(v.iter()),
         })
     }
 }
 
-impl<'a, C, E, WithContextFormat> Iterator for Iter<'a, C, E, WithContextFormat> {
-    type Item = &'a WithContext<C, E, WithContextFormat>;
+impl<'a, C, E, GC, F, GF> Iterator for Iter<'a, C, E, GC, F, GF> {
+    type Item = &'a Node<C, E, GC, F, GF>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.0 {
@@ -51,137 +67,223 @@ impl<'a, C, E, WithContextFormat> Iterator for Iter<'a, C, E, WithContextFormat>
     }
 }
 
-mod from_iter {
-    use core::ops::ControlFlow;
+// --- IterMut ---
 
-    use super::*;
+impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
+    /// Returns an iterator over mutable references to each direct [`Node`] child.
+    pub fn iter_mut(&mut self) -> IterMut<'_, C, E, GC, F, GF> {
+        IterMut::new(self)
+    }
+}
 
-    impl<C, E, WithContextFormat> FromIterator<WithContext<C, E, WithContextFormat>>
-        for ManyErrors<C, E, WithContextFormat>
-    {
-        fn from_iter<I: IntoIterator<Item = WithContext<C, E, WithContextFormat>>>(
-            iter: I,
-        ) -> Self {
-            let mut me = Self::None;
-            me.extend(iter);
-            me
+impl<'a, C, E, GC, F, GF> IntoIterator for &'a mut ManyErrors<C, E, GC, F, GF> {
+    type Item = &'a mut Node<C, E, GC, F, GF>;
+    type IntoIter = IterMut<'a, C, E, GC, F, GF>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+/// Iterator over mutable references to the direct [`Node`] children of a [`ManyErrors`].
+pub struct IterMut<'a, C, E, GC = C, F = Colon, GF = ContextField>(
+    IterMutInner<'a, C, E, GC, F, GF>,
+);
+
+enum IterMutInner<'a, C, E, GC, F, GF> {
+    Empty,
+    One(Option<&'a mut Node<C, E, GC, F, GF>>),
+    Many(core::slice::IterMut<'a, Node<C, E, GC, F, GF>>),
+}
+
+impl<'a, C, E, GC, F, GF> IterMut<'a, C, E, GC, F, GF> {
+    fn new(many: &'a mut ManyErrors<C, E, GC, F, GF>) -> Self {
+        Self(match many {
+            ManyErrors::None => IterMutInner::Empty,
+            ManyErrors::One(n) => IterMutInner::One(Some(n)),
+            ManyErrors::Many(v) => IterMutInner::Many(v.iter_mut()),
+        })
+    }
+}
+
+impl<'a, C, E, GC, F, GF> Iterator for IterMut<'a, C, E, GC, F, GF> {
+    type Item = &'a mut Node<C, E, GC, F, GF>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.0 {
+            IterMutInner::Empty => None,
+            IterMutInner::One(slot) => slot.take(),
+            IterMutInner::Many(it) => it.next(),
         }
     }
 
-    impl<C, E, WithContextFormat> FromIterator<(C, E)> for ManyErrors<C, E, WithContextFormat> {
-        fn from_iter<I: IntoIterator<Item = (C, E)>>(iter: I) -> Self {
-            iter.into_iter().map(WithContext::from).collect()
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match &self.0 {
+            IterMutInner::Empty => (0, Some(0)),
+            IterMutInner::One(slot) => {
+                let n = slot.is_some() as usize;
+                (n, Some(n))
+            }
+            IterMutInner::Many(it) => it.size_hint(),
+        }
+    }
+}
+
+// --- IntoIter (owned) ---
+
+impl<C, E, GC, F, GF> IntoIterator for ManyErrors<C, E, GC, F, GF> {
+    type Item = Node<C, E, GC, F, GF>;
+    type IntoIter = IntoIter<C, E, GC, F, GF>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter(match self {
+            ManyErrors::None => IntoIterInner::Empty,
+            ManyErrors::One(n) => IntoIterInner::One(Some(n)),
+            ManyErrors::Many(v) => IntoIterInner::Many(v.into_iter()),
+        })
+    }
+}
+
+/// Owning iterator over the direct [`Node`] children of a [`ManyErrors`],
+/// produced by `into_iter` (moves each child out).
+pub struct IntoIter<C, E, GC = C, F = Colon, GF = ContextField>(IntoIterInner<C, E, GC, F, GF>);
+
+enum IntoIterInner<C, E, GC, F, GF> {
+    Empty,
+    One(Option<Node<C, E, GC, F, GF>>),
+    Many(alloc::vec::IntoIter<Node<C, E, GC, F, GF>>),
+}
+
+impl<C, E, GC, F, GF> Iterator for IntoIter<C, E, GC, F, GF> {
+    type Item = Node<C, E, GC, F, GF>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.0 {
+            IntoIterInner::Empty => None,
+            IntoIterInner::One(slot) => slot.take(),
+            IntoIterInner::Many(it) => it.next(),
         }
     }
 
-    impl<C, E, WithContextFormat>
-        FromIterator<
-            ControlFlow<WithContext<C, E, WithContextFormat>, WithContext<C, E, WithContextFormat>>,
-        > for ManyErrors<C, E, WithContextFormat>
-    {
-        fn from_iter<I>(iter: I) -> Self
-        where
-            I: IntoIterator<
-                Item = ControlFlow<
-                    WithContext<C, E, WithContextFormat>,
-                    WithContext<C, E, WithContextFormat>,
-                >,
-            >,
-        {
-            let mut me = Self::None;
-            me.extend(iter);
-            me
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match &self.0 {
+            IntoIterInner::Empty => (0, Some(0)),
+            IntoIterInner::One(slot) => {
+                let n = slot.is_some() as usize;
+                (n, Some(n))
+            }
+            IntoIterInner::Many(it) => it.size_hint(),
         }
     }
+}
 
-    impl<C, E, WithContextFormat> FromIterator<ControlFlow<(C, E), (C, E)>>
-        for ManyErrors<C, E, WithContextFormat>
+// --- FromIterator / Extend ---
+
+impl<C, E, GC, F, GF> FromIterator<WithContext<C, E, F>> for ManyErrors<C, E, GC, F, GF> {
+    fn from_iter<I: IntoIterator<Item = WithContext<C, E, F>>>(iter: I) -> Self {
+        let mut me = Self::None;
+        me.extend(iter);
+        me
+    }
+}
+
+impl<C, E, GC, F, GF> FromIterator<(C, E)> for ManyErrors<C, E, GC, F, GF> {
+    fn from_iter<I: IntoIterator<Item = (C, E)>>(iter: I) -> Self {
+        let mut me = Self::None;
+        me.extend(iter);
+        me
+    }
+}
+
+impl<C, E, GC, F, GF> FromIterator<ControlFlow<WithContext<C, E, F>, WithContext<C, E, F>>>
+    for ManyErrors<C, E, GC, F, GF>
+{
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = ControlFlow<WithContext<C, E, F>, WithContext<C, E, F>>>,
     {
-        fn from_iter<I: IntoIterator<Item = ControlFlow<(C, E), (C, E)>>>(iter: I) -> Self {
-            let mut me = Self::None;
-            me.extend(iter);
-            me
+        let mut me = Self::None;
+        me.extend(iter);
+        me
+    }
+}
+
+impl<C, E, GC, F, GF> FromIterator<ControlFlow<(C, E), (C, E)>> for ManyErrors<C, E, GC, F, GF> {
+    fn from_iter<I: IntoIterator<Item = ControlFlow<(C, E), (C, E)>>>(iter: I) -> Self {
+        let mut me = Self::None;
+        me.extend(iter);
+        me
+    }
+}
+
+// --- Extend ---
+
+impl<C, E, GC, F, GF> Extend<WithContext<C, E, F>> for ManyErrors<C, E, GC, F, GF> {
+    fn extend<I: IntoIterator<Item = WithContext<C, E, F>>>(&mut self, iter: I) {
+        for item in iter {
+            self.push_node(Node::Leaf(item));
         }
     }
+}
 
-    // --- Extend ---
+impl<C, E, GC, F, GF> Extend<(C, E)> for ManyErrors<C, E, GC, F, GF> {
+    fn extend<I: IntoIterator<Item = (C, E)>>(&mut self, iter: I) {
+        for (context, error) in iter {
+            self.push(context, error);
+        }
+    }
+}
 
-    impl<C, E, WithContextFormat> Extend<WithContext<C, E, WithContextFormat>>
-        for ManyErrors<C, E, WithContextFormat>
+/// `Continue(w)` records `w` and keeps iterating; `Break(w)` records `w` and stops.
+impl<C, E, GC, F, GF> Extend<ControlFlow<WithContext<C, E, F>, WithContext<C, E, F>>>
+    for ManyErrors<C, E, GC, F, GF>
+{
+    fn extend<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = ControlFlow<WithContext<C, E, F>, WithContext<C, E, F>>>,
     {
-        fn extend<I: IntoIterator<Item = WithContext<C, E, WithContextFormat>>>(
-            &mut self,
-            iter: I,
-        ) {
-            // TODO: Optimize
-            for item in iter {
-                self.push(item);
+        for cf in iter {
+            let stop = matches!(cf, ControlFlow::Break(_));
+            let w = match cf {
+                ControlFlow::Continue(w) | ControlFlow::Break(w) => w,
+            };
+            self.push_node(Node::Leaf(w));
+            if stop {
+                break;
             }
         }
     }
+}
 
-    impl<C, E, WithContextFormat> Extend<(C, E)> for ManyErrors<C, E, WithContextFormat> {
-        fn extend<I: IntoIterator<Item = (C, E)>>(&mut self, iter: I) {
-            self.extend(iter.into_iter().map(WithContext::from));
-        }
-    }
-
-    /// `Continue(w)` records `w` and keeps iterating; `Break(w)` records `w` and stops.
-    impl<C, E, WithContextFormat>
-        Extend<
-            ControlFlow<WithContext<C, E, WithContextFormat>, WithContext<C, E, WithContextFormat>>,
-        > for ManyErrors<C, E, WithContextFormat>
-    {
-        fn extend<I>(&mut self, iter: I)
-        where
-            I: IntoIterator<
-                Item = ControlFlow<
-                    WithContext<C, E, WithContextFormat>,
-                    WithContext<C, E, WithContextFormat>,
-                >,
-            >,
-        {
-            for cf in iter {
-                let stop = matches!(cf, ControlFlow::Break(_));
-                let w = match cf {
-                    ControlFlow::Continue(w) | ControlFlow::Break(w) => w,
-                };
-                self.push(w);
-                if stop {
-                    break;
-                }
+impl<C, E, GC, F, GF> Extend<ControlFlow<(C, E), (C, E)>> for ManyErrors<C, E, GC, F, GF> {
+    fn extend<I: IntoIterator<Item = ControlFlow<(C, E), (C, E)>>>(&mut self, iter: I) {
+        for cf in iter {
+            let stop = matches!(cf, ControlFlow::Break(_));
+            let (context, error) = match cf {
+                ControlFlow::Continue(t) | ControlFlow::Break(t) => t,
+            };
+            self.push(context, error);
+            if stop {
+                break;
             }
-        }
-    }
-
-    impl<C, E, WithContextFormat> Extend<ControlFlow<(C, E), (C, E)>>
-        for ManyErrors<C, E, WithContextFormat>
-    {
-        fn extend<I>(&mut self, iter: I)
-        where
-            I: IntoIterator<Item = ControlFlow<(C, E), (C, E)>>,
-        {
-            self.extend(iter.into_iter().map(|cf| match cf {
-                ControlFlow::Continue(t) => ControlFlow::Continue(WithContext::from(t)),
-                ControlFlow::Break(t) => ControlFlow::Break(WithContext::from(t)),
-            }));
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{ManyErrors, WithContext, tests::Inner};
+    use crate::{ManyErrors, Node, WithContext, tests::Inner};
     use itertools::Itertools as _;
     use std::{io, ops::ControlFlow};
 
-    fn w(ctx: &'static str) -> WithContext<&'static str, Inner> {
-        WithContext::new(ctx, Inner::A)
-    }
-
     #[test]
     fn test_collect_from_with_context() {
-        let errs: ManyErrors<&str, Inner> = [w("a"), w("b"), w("c")].into_iter().collect();
+        let wcs = [
+            WithContext::<_, _, _>::new("a", Inner::A),
+            WithContext::new("b", Inner::A),
+            WithContext::new("c", Inner::A),
+        ];
+        let errs: ManyErrors<&str, Inner> = wcs.into_iter().collect();
         assert_eq!(errs.len(), 3);
     }
 
@@ -194,26 +296,33 @@ mod tests {
 
     #[test]
     fn test_extend_from_with_context() {
-        let mut e = ManyErrors::new();
-        e.extend([w("a"), w("b")]);
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.extend([
+            WithContext::new("a", Inner::A),
+            WithContext::new("b", Inner::A),
+        ]);
         assert_eq!(e.len(), 2);
     }
 
     #[test]
     fn test_extend_from_tuples_via_partition_result() {
-        let results: Vec<Result<i32, (&str, Inner)>> =
-            vec![Ok(1), Err(("a", Inner::A)), Ok(2), Err(("b", Inner::A))];
-        let (oks, errs): (Vec<i32>, ManyErrors<&str, Inner>) =
+        let results: alloc::vec::Vec<Result<i32, (&str, Inner)>> =
+            alloc::vec![Ok(1), Err(("a", Inner::A)), Ok(2), Err(("b", Inner::A))];
+        let (oks, errs): (alloc::vec::Vec<i32>, ManyErrors<&str, Inner>) =
             results.into_iter().partition_result();
         assert_eq!(oks, [1, 2]);
         assert_eq!(errs.len(), 2);
     }
 
+    type WcFlow = ControlFlow<WithContext<&'static str, Inner>, WithContext<&'static str, Inner>>;
+    type TupleFlow = ControlFlow<(&'static str, Inner), (&'static str, Inner)>;
+
     #[test]
     fn test_control_flow_all_continue() {
-        #[allow(clippy::type_complexity)]
-        let items: Vec<ControlFlow<WithContext<&str, Inner>, WithContext<&str, Inner>>> =
-            vec![ControlFlow::Continue(w("a")), ControlFlow::Continue(w("b"))];
+        let items: alloc::vec::Vec<WcFlow> = alloc::vec![
+            ControlFlow::Continue(WithContext::new("a", Inner::A)),
+            ControlFlow::Continue(WithContext::new("b", Inner::A)),
+        ];
         let errs: ManyErrors<&str, Inner> = items.into_iter().collect();
         assert_eq!(errs.len(), 2);
     }
@@ -237,8 +346,7 @@ mod tests {
 
     #[test]
     fn test_control_flow_tuples() {
-        #[allow(clippy::type_complexity)]
-        let items: Vec<ControlFlow<(&str, Inner), (&str, Inner)>> = vec![
+        let items: alloc::vec::Vec<TupleFlow> = alloc::vec![
             ControlFlow::Continue(("a", Inner::A)),
             ControlFlow::Break(("b", Inner::A)),
         ];
@@ -254,19 +362,31 @@ mod tests {
 
     #[test]
     fn test_iter_one() {
-        let mut e = ManyErrors::new();
-        e.push(w("a"));
-        let items: Vec<_> = e.iter().collect();
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("a", Inner::A);
+        let items: alloc::vec::Vec<_> = e.iter().collect();
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].context, "a");
+        assert_eq!(items[0].as_leaf().unwrap().context, "a");
     }
 
     #[test]
     fn test_iter_many() {
-        let mut e = ManyErrors::new();
-        e.push(w("a"));
-        e.push(w("b"));
-        let ctxs: Vec<_> = e.iter().map(|w| w.context).collect();
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("a", Inner::A);
+        e.push("b", Inner::A);
+        let ctxs: alloc::vec::Vec<_> = e.iter().map(|n| n.as_leaf().unwrap().context).collect();
+        assert_eq!(ctxs, ["a", "b"]);
+    }
+
+    #[test]
+    fn test_into_iter_ref() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("a", Inner::A);
+        e.push("b", Inner::A);
+        let mut ctxs = alloc::vec::Vec::new();
+        for n in &e {
+            ctxs.push(n.as_leaf().unwrap().context);
+        }
         assert_eq!(ctxs, ["a", "b"]);
     }
 
@@ -278,5 +398,47 @@ mod tests {
             .filter_map(|p| std::fs::read(p).err().map(|e| WithContext::new(*p, e)))
             .collect();
         assert_eq!(errs.len(), 2);
+    }
+
+    #[test]
+    fn test_into_iter_owned() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("a", Inner::A);
+        e.push("b", Inner::B);
+        // Moves each node out — no borrow of `e` afterwards.
+        let ctxs: alloc::vec::Vec<_> = e
+            .into_iter()
+            .map(|n| n.as_leaf().unwrap().context)
+            .collect();
+        assert_eq!(ctxs, ["a", "b"]);
+    }
+
+    #[test]
+    fn test_into_iter_owned_one_and_none() {
+        let one = {
+            let mut e = ManyErrors::<&str, Inner>::new();
+            e.push("solo", Inner::A);
+            e
+        };
+        assert_eq!(one.into_iter().count(), 1);
+
+        let none = ManyErrors::<&str, Inner>::new();
+        assert_eq!(none.into_iter().count(), 0);
+    }
+
+    #[test]
+    fn test_iter_mut_mutates_in_place() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("a", Inner::A);
+        e.push("b", Inner::A);
+
+        for node in &mut e {
+            if let Node::Leaf(w) = node {
+                w.context = "patched";
+            }
+        }
+
+        let ctxs: alloc::vec::Vec<_> = e.iter().map(|n| n.as_leaf().unwrap().context).collect();
+        assert_eq!(ctxs, ["patched", "patched"]);
     }
 }

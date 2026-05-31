@@ -9,10 +9,10 @@ use crate::{Format, chain};
 /// For a different separator (or any per-element formatting), implement
 /// [`Format`] yourself using [`chain`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct OneLine;
+pub struct Flat;
 
 /// Walks the source chain and joins each error's `Display` output with `": "`.
-impl<E: Error + ?Sized> Format<E> for OneLine {
+impl<E: Error + ?Sized> Format<E> for Flat {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", chain(&error).format(": "))
     }
@@ -23,7 +23,7 @@ mod tests {
     use std::io;
 
     use crate::{
-        FormatError, Formatted, OneLine,
+        Flat, FormatError, Formatted,
         tests::{Arrow, Error, Inner},
     };
 
@@ -41,7 +41,7 @@ mod tests {
         let error = Error::One;
         assert_eq!(error.one_line().to_string(), "One");
         assert_eq!(format!("{:?}", error.one_line()), "One");
-        assert_eq!(Formatted::<_, OneLine>::new(Error::One).to_string(), "One");
+        assert_eq!(Formatted::<_, Flat>::new(Error::One).to_string(), "One");
 
         let error = Error::Two(Inner::A);
         assert_eq!(error.one_line().to_string(), "Two: InnerA");

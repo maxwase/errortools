@@ -17,6 +17,7 @@ include = ["src/**/*.rs", "examples/**/*.rs", "README.md", "CHANGELOG.md", "LICE
 itertools = { version = "0.14", default-features = false }
 
 [dev-dependencies]
+pretty_assertions = "1.4.1"
 thiserror = "2"
 
 [features]

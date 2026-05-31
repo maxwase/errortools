@@ -12,6 +12,8 @@ extern crate alloc;
 use core::{error::Error, fmt, iter, marker::PhantomData};
 
 mod add;
+mod chain;
+mod connectors;
 mod main_result;
 #[cfg(feature = "alloc")]
 pub mod many_errors;
@@ -19,18 +21,18 @@ mod oneline;
 #[cfg(feature = "std")]
 pub mod path_display;
 mod suggestion;
-mod tree;
 pub mod with_context;
 
 pub use add::{Add, separator};
+pub use chain::Chain;
+pub use connectors::{Ascii, Connectors, TreeConnectors, Unicode};
 pub use main_result::{DisplaySwapDebug, MainResult, MainResultWithSuggestion, WithSuggestion};
 #[cfg(feature = "alloc")]
-pub use many_errors::{Listing, ManyErrors};
-pub use oneline::OneLine;
+pub use many_errors::{Bullets, Inline, List, ManyErrors, Node, Subgroup, Tree};
+pub use oneline::Flat;
 #[cfg(feature = "std")]
 pub use path_display::DisplayPath;
 pub use suggestion::{Suggest, Suggestion};
-pub use tree::{Tree, TreeIndent, TreeMarker};
 pub use with_context::WithContext;
 
 /// A static strategy for formatting a value to a [`fmt::Formatter`].
@@ -45,7 +47,7 @@ pub use with_context::WithContext;
 /// without walking the source chain at all.
 ///
 /// `E` is the value being formatted; each strategy declares its own bounds:
-/// [`OneLine`] and [`Tree`] require `E: Error`, [`Suggestion`] additionally
+/// [`Flat`] and [`Chain`] require `E: Error`, [`Suggestion`] additionally
 /// requires [`Suggest`], and field extractors like
 /// [`ContextField`](crate::with_context::ContextField) require `E` to be a
 /// specific shape. The trait itself imposes nothing beyond `?Sized` so
@@ -62,11 +64,9 @@ pub trait Format<E: ?Sized> {
 /// Sentinel [`Format`] strategy that delegates to the value's own [`fmt::Display`]
 /// impl.
 ///
-/// Useful as a default in strategy-aware wrappers (e.g.
-#[cfg_attr(feature = "alloc", doc = "[`Listing`]")]
-#[cfg_attr(not(feature = "alloc"), doc = "`Listing`")]
-/// ) when per-item formatting should defer to each item's own `Display` (and
-/// thus its own type-level strategy) rather than being overridden.
+/// Useful as a default in strategy-aware wrappers when per-item formatting
+/// should defer to each item's own `Display` (and thus its own type-level
+/// strategy) rather than being overridden.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct AsDisplay;
 
@@ -87,13 +87,16 @@ pub fn chain<'a>(error: &'a dyn Error) -> impl Iterator<Item = &'a dyn Error> + 
 /// A helper trait to format errors.
 pub trait FormatError {
     /// Formats the error in a single line concatenated by `: `.
-    fn one_line(&self) -> Formatted<&Self, OneLine> {
-        self.formatted::<OneLine>()
+    fn one_line(&self) -> Formatted<&Self, Flat> {
+        self.formatted::<Flat>()
     }
 
-    /// Formats the error as an indented tree of sources.
-    fn tree(&self) -> Formatted<&Self, Tree> {
-        self.formatted::<Tree>()
+    /// Formats the error as an indented source-chain ladder.
+    ///
+    /// For aggregate many-error rendering (branching tree) see
+    /// [`ManyErrors::tree`](crate::many_errors::ManyErrors::tree).
+    fn chain(&self) -> Formatted<&Self, Chain> {
+        self.formatted::<Chain>()
     }
 
     /// Renders the error's [`Suggestion`] hint. Only the top-level error is
@@ -119,7 +122,7 @@ impl<E: Error + ?Sized> FormatError for E {}
 /// [`PhantomData`] avoids drop-check ownership of `F` and makes the wrapper
 /// `Send + Sync` regardless of `F`.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Formatted<E, F = OneLine>(E, PhantomData<fn() -> F>);
+pub struct Formatted<E, F = Flat>(E, PhantomData<fn() -> F>);
 
 impl<E, F> Formatted<E, F> {
     /// Wraps `error` so its `Display` impl uses the [`Format`] strategy `F`.

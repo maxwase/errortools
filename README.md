@@ -50,12 +50,12 @@ Error: failed to load config: No such file or directory (os error 2)
 
 The error and its full source chain print joined with `": "`. No `run()` wrapper, no manual loop.
 
-## Tree format
+## Chain format
 
-Prefer a multi-line view? Swap the format strategy:
+Prefer a multi-line indented view of the source chain? Swap the format strategy:
 
 ```rust,no_run
-use errortools::{MainResult, Tree};
+use errortools::{Chain, MainResult};
 use std::{fs, io};
 
 #[derive(Debug, thiserror::Error)]
@@ -64,7 +64,7 @@ enum AppError {
     Config(#[source] io::Error),
 }
 
-fn main() -> MainResult<AppError, Tree> {
+fn main() -> MainResult<AppError, Chain> {
     let _ = fs::read_to_string("missing.toml").map_err(AppError::Config)?;
     Ok(())
 }
@@ -72,7 +72,7 @@ fn main() -> MainResult<AppError, Tree> {
 
 ```text
 Error: failed to load config
-└── No such file or directory (os error 2)
+└─ No such file or directory (os error 2)
 ```
 
 ## Adding context
@@ -158,13 +158,13 @@ if let Err(e) = do_thing() {
 For ad-hoc strategies, pick the format inline with `formatted::<F>()`:
 
 ```rust,ignore
-use errortools::{FormatError, Tree};
+use errortools::{Chain, FormatError};
 
 if let Err(e) = do_thing() {
-    eprintln!("{}", e.formatted::<Tree>());
+    eprintln!("{}", e.formatted::<Chain>());
     // outer
-    // └── middle
-    //     └── inner
+    // └─ middle
+    //    └─ inner
 }
 ```
 
@@ -192,11 +192,11 @@ println!("{}", my_error.formatted::<Arrow>()); // outer -> middle -> inner
 `Add<L, R>` glues two `Format` strategies together. Both run against the same value, left then right. There's no built-in separator, drop a separator strategy (`NewLine`, `Space`, `Colon`, `ColonSpace`, `Empty`) in between, or reach for the three-arg `WithSep<L, Sep, R>` alias when you'd otherwise nest:
 
 ```rust,ignore
-use errortools::{Formatted, OneLine, Suggestion, separator::{NewLine, WithSep}};
+use errortools::{Formatted, Flat, Suggestion, separator::{NewLine, WithSep}};
 
-// Same as Add<Add<OneLine, NewLine>, Suggestion>. Renders:
+// Same as Add<Add<Flat, NewLine>, Suggestion>. Renders:
 // "<one-line chain>\n<top-level suggestion>"
-type Brief = WithSep<OneLine, NewLine, Suggestion>;
+type Brief = WithSep<Flat, NewLine, Suggestion>;
 
 eprintln!("{}", Formatted::<_, Brief>::new(err));
 ```
@@ -205,13 +205,13 @@ For the common separators there are zero-think aliases — `WithSpace<L, R>`,
 `WithNewLine<L, R>`, `WithColonSpace<L, R>` — all in `errortools::separator`:
 
 ```rust,ignore
-use errortools::{Formatted, OneLine, Suggestion, separator::WithNewLine};
+use errortools::{Formatted, Flat, Suggestion, separator::WithNewLine};
 
-type Brief = WithNewLine<OneLine, Suggestion>;
+type Brief = WithNewLine<Flat, Suggestion>;
 eprintln!("{}", Formatted::<_, Brief>::new(err));
 ```
 
-Bounds compose: `Add<OneLine, Suggestion>` only implements `Format<E>` when
+Bounds compose: `Add<Flat, Suggestion>` only implements `Format<E>` when
 `E: Error + Suggest`, because `Suggestion`'s impl carries that bound.
 
 The same combinator powers the `WithContext` default — `Colon` is just a type
@@ -262,14 +262,52 @@ Only the top-level error's hint is printed, the source chain isn't walked. This 
 
 The idea is that every error that is supposed to have a suggestion should implement `Suggest` and then later the top-level error's suggestion may concatenate the inner hint if it's relevant with nesting matching the error chain.
 
+## Many errors at once
+
+Some operations shouldn't stop at the first failure — validating a config, deploying to every region, parsing a batch. You want all of them, grouped and readable. That's `ManyErrors<C, E>`: a context-tagged collection that renders as a tree.
+
+```rust,ignore
+use errortools::ManyErrors;
+
+let mut errs = ManyErrors::new();
+errs.push("eu-west-1", RegionError::Refused);
+errs.push("us-east-1", RegionError::Timeout);
+
+errs.into_result(())?; // Ok if empty, Err(ManyErrors) otherwise
+```
+
+It costs nothing until it has to: `None` while empty, one inline slot for the first error, a `Vec` only once a second arrives. You can also collect straight from an iterator of `(context, error)` pairs or `WithContext` values — including itertools' `partition_result`.
+
+Group related failures with `push_group` and the tree nests:
+
+```text
+2 errors:
+├─ us-east-1 (2 errors):
+│  ├─ i-0a1: connection refused
+│  └─ i-0b2: timed out: network partition
+└─ eu-west-1: connection refused
+```
+
+The default `Display` is the Unicode tree above. Want another shape? `list()`, `bullets()`, and `one_line()` are inherent helpers, no turbofish:
+
+```rust,ignore
+println!("{}", errs.list());      // 1.  1.1.  2.
+println!("{}", errs.bullets());   // • bulleted
+println!("{}", errs.one_line());  // ;-separated, parens around groups
+```
+
+For full control — ASCII connectors, no count header — go through `formatted`: `Formatted::<_, Tree<Ascii, false>>::new(&errs)`.
+
+Group labels can differ from leaf contexts via the third parameter, `ManyErrors<C, E, GC>`, but `GC` defaults to `C`, so the common case stays two params.
+
 ## How it works
 
 `MainResult<E, F>` is a type alias:
 
 ```rust
-use errortools::{DisplaySwapDebug, Formatted, OneLine};
+use errortools::{DisplaySwapDebug, Formatted, Flat};
 
-pub type MainResult<E, F = OneLine, T = ()> = Result<T, DisplaySwapDebug<Formatted<E, F>>>;
+pub type MainResult<E, F = Flat, T = ()> = Result<T, DisplaySwapDebug<Formatted<E, F>>>;
 ```
 
 `DisplaySwapDebug` swaps the `Debug` and `Display` impls of its inner type. When `main` prints the error via `Debug`, it ends up reaching the `Display` output instead, formatted by the chosen strategy. `?` converts your error automatically via the blanket `From` impl.
@@ -280,12 +318,13 @@ Runnable examples in [`examples/`](https://github.com/maxwase/errortools/tree/ma
 
 | Example | What it shows |
 |---|---|
-| [`one_line`](https://github.com/maxwase/errortools/blob/master/examples/one_line.rs) | `MainResult` with default `OneLine` format |
-| [`tree`](https://github.com/maxwase/errortools/blob/master/examples/tree.rs) | `MainResult<E, Tree>` for indented multi-line output |
+| [`one_line`](https://github.com/maxwase/errortools/blob/master/examples/one_line.rs) | `MainResult` with default `Flat` format |
+| [`tree`](https://github.com/maxwase/errortools/blob/master/examples/tree.rs) | `MainResult<E, Chain>` for indented multi-line output |
 | [`format_error`](https://github.com/maxwase/errortools/blob/master/examples/format_error.rs) | `FormatError` trait for ad-hoc formatting |
 | [`custom_format`](https://github.com/maxwase/errortools/blob/master/examples/custom_format.rs) | A custom `Format` strategy |
 | [`transparent`](https://github.com/maxwase/errortools/blob/master/examples/transparent.rs) | `#[error(transparent)]` pass-through with `#[from]` |
 | [`with_context`](https://github.com/maxwase/errortools/blob/master/examples/with_context.rs) | `WithContext` tags an inner error with a context value, lifted via `#[from]` |
+| [`many_errors`](https://github.com/maxwase/errortools/blob/master/examples/many_errors.rs) | `ManyErrors` collects nested, context-tagged failures and renders them as a tree |
 
 Run with: `cargo run --example <name>`.
 

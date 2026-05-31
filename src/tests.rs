@@ -131,13 +131,11 @@ fn _assert_derive_traits() {
     impl core::error::Error for DummyError {}
 
     fn assert_all<T: Clone + Copy + Default + PartialEq + Eq + Hash + Send + Sync>() {}
-    assert_all::<Formatted<DummyError, OneLine>>();
-    assert_all::<Formatted<DummyError, Tree>>();
+    assert_all::<Formatted<DummyError, Flat>>();
+    assert_all::<Formatted<DummyError, Chain>>();
     assert_all::<DisplaySwapDebug<DummyError>>();
-    assert_all::<OneLine>();
-    assert_all::<TreeMarker>();
-    assert_all::<TreeIndent>();
-    assert_all::<Tree>();
+    assert_all::<Flat>();
+    assert_all::<Chain>();
 }
 
 #[test]
@@ -185,12 +183,15 @@ fn test_with_ctx_variant() {
 #[test]
 fn test_many_variant() {
     let mut errs = ManyErrors::new();
-    errs.push(WithContext::new("a", Inner::A));
-    errs.push(WithContext::new("b", Inner::B));
+    errs.push("a", Inner::A);
+    errs.push("b", Inner::B);
     let e = Error::Many(errs);
     assert_eq!(e.to_string(), "Many");
-    // ManyErrors is the source; its Display renders all items.
-    assert_eq!(e.one_line().to_string(), "Many: a: InnerA\nb: InnerB");
+    // ManyErrors is the source; one_line walks the chain and embeds ManyErrors::Display (Tree).
+    assert_eq!(
+        e.one_line().to_string(),
+        "Many: 2 errors:\n├─ a: InnerA\n└─ b: InnerB"
+    );
 }
 
 // --- transparent ---
@@ -232,20 +233,20 @@ fn test_transparent_source_delegates_not_wraps() {
 
 #[test]
 fn test_transparent_chain_never_shows_wrapper_name() {
-    // one_line and tree walk the chain. "Transparent" must not appear.
+    // one_line and chain walk the chain. "Transparent" must not appear.
     let e = Error::Transparent(Mid::Inner(Inner::A));
     let one = e.one_line().to_string();
-    let tree = e.tree().to_string();
+    let chain_out = e.chain().to_string();
     assert!(
         !one.contains("Transparent"),
         "one_line should not contain 'Transparent': {one}"
     );
     assert!(
-        !tree.contains("Transparent"),
-        "tree should not contain 'Transparent': {tree}"
+        !chain_out.contains("Transparent"),
+        "chain should not contain 'Transparent': {chain_out}"
     );
     assert_eq!(one, "mid: InnerA");
-    assert_eq!(tree, "mid\n└── InnerA");
+    assert_eq!(chain_out, "mid\n└─ InnerA");
 }
 
 #[test]

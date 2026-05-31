@@ -33,6 +33,11 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// since the strategy already prints it), so chain-walking strategies don't
 /// duplicate it.
 ///
+/// All standard-trait impls (`Clone`, `PartialEq`, `Eq`, `Hash`) are written
+/// manually — not derived — so they do **not** impose `WithContextFormat: Trait`
+/// bounds. `Copy` is still derived (works unconditionally via
+/// `PhantomData<fn() -> F>: Copy`).
+///
 /// # Example
 /// ```
 /// use errortools::{FormatError, with_context::WithContextColon};
@@ -70,7 +75,7 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// let w = WithContext::<_, _, Arrow>::new(1, "boom");
 /// assert_eq!(w.to_string(), "1 -> boom");
 /// ```
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Copy)]
 pub struct WithContext<C, E, WithContextFormat = Colon> {
     /// The context value tagging this error (e.g. a file path or step number).
     pub context: C,
@@ -108,6 +113,35 @@ impl<C, E, WithContextFormat> WithContext<C, E, WithContextFormat> {
 impl<C, E, WithContextFormat> From<(C, E)> for WithContext<C, E, WithContextFormat> {
     fn from((context, error): (C, E)) -> Self {
         Self::new(context, error)
+    }
+}
+
+// Manual impls so WithContextFormat does not get Trait bounds from derives.
+// The _format field is PhantomData<fn() -> WithContextFormat>, which is always
+// Clone/PartialEq/Eq/Hash/Copy — but derive adds the F: Trait bound regardless.
+
+impl<C: Clone, E: Clone, F> Clone for WithContext<C, E, F> {
+    fn clone(&self) -> Self {
+        Self {
+            context: self.context.clone(),
+            error: self.error.clone(),
+            _format: PhantomData,
+        }
+    }
+}
+
+impl<C: PartialEq, E: PartialEq, F> PartialEq for WithContext<C, E, F> {
+    fn eq(&self, other: &Self) -> bool {
+        self.context == other.context && self.error == other.error
+    }
+}
+
+impl<C: Eq, E: Eq, F> Eq for WithContext<C, E, F> {}
+
+impl<C: core::hash::Hash, E: core::hash::Hash, F> core::hash::Hash for WithContext<C, E, F> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.context.hash(state);
+        self.error.hash(state);
     }
 }
 
