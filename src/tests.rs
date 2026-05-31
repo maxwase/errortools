@@ -143,6 +143,7 @@ fn _assert_derive_traits() {
     assert_all::<Formatted<DummyError, NoTraits>>();
     assert_all::<Chain<NoTraits>>();
     assert_all::<Add<NoTraits, NoTraits>>();
+    #[cfg(feature = "alloc")]
     assert_all::<Tree<NoTraits, true>>();
 
     // `WithContext` has no `Default`, but its other auto-traits must still be

@@ -29,3 +29,7 @@ alloc = []
 [[example]]
 name = "with_context"
 required-features = ["std"]
+
+[[example]]
+name = "many_errors"
+required-features = ["std"]

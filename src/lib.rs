@@ -71,8 +71,8 @@ pub use with_context::WithContext;
 ///   — these impls bound the marker `…: Debug + Default`, while their
 ///   auto-traits ([`Clone`]/[`Copy`]/[`PartialEq`]/[`Eq`]/[`Hash`]) stay free of
 ///   any marker bound.
-/// - **Payload types** ([`WithContext`], [`ManyErrors`](crate::ManyErrors),
-///   [`Node`](crate::Node)) print their own name and fields, hiding the phantom
+/// - **Payload types** ([`WithContext`], [`ManyErrors`], [`Node`]) print their
+///   own name and fields, hiding the phantom
 ///   strategy. Thin display adapters ([`DisplayPath`]) instead stay transparent
 ///   to mirror their target's `Debug`.
 pub trait Format<E: ?Sized> {

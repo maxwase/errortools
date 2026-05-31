@@ -1,5 +1,9 @@
 //! Maximum-customization integration test for the `ManyErrors` rendering path.
 //!
+//! `ManyErrors` lives behind the `alloc` feature, so the whole test is gated.
+#![cfg(feature = "alloc")]
+//!
+//!
 //! Nothing here relies on a crate-provided strategy or a defaulted generic:
 //!
 //! - every `ManyErrors` / `WithContext` type parameter is spelled out;
