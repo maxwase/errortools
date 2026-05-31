@@ -1,4 +1,8 @@
-use core::{fmt, marker::PhantomData};
+use core::{
+    fmt,
+    hash::{Hash, Hasher},
+    marker::PhantomData,
+};
 
 use crate::Format;
 
@@ -21,8 +25,30 @@ use crate::Format;
 /// `Add` writes both sides unconditionally — if `R` produces no output (e.g.
 /// a [`Suggestion`](crate::Suggestion) variant without a hint), the separator
 /// is still written.
-#[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Add<L, R>(PhantomData<fn() -> (L, R)>);
+
+// Manual impls so the phantom strategies `L`/`R` get no `Trait` bound from
+// derives (the `_format`-style doctrine; see `WithContext`).
+impl<L, R> Default for Add<L, R> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+impl<L, R> Clone for Add<L, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<L, R> Copy for Add<L, R> {}
+impl<L, R> PartialEq for Add<L, R> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl<L, R> Eq for Add<L, R> {}
+impl<L, R> Hash for Add<L, R> {
+    fn hash<H: Hasher>(&self, _: &mut H) {}
+}
 
 /// Prints the inner strategy values (instantiated via [`Default`]) instead of
 /// `Add(PhantomData)`.

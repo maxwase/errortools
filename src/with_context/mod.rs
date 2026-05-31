@@ -33,10 +33,12 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// since the strategy already prints it), so chain-walking strategies don't
 /// duplicate it.
 ///
-/// All standard-trait impls (`Clone`, `PartialEq`, `Eq`, `Hash`) are written
-/// manually — not derived — so they do **not** impose `WithContextFormat: Trait`
-/// bounds. `Copy` is still derived (works unconditionally via
-/// `PhantomData<fn() -> F>: Copy`).
+/// All standard-trait impls (`Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`) are
+/// written manually — not derived — so they do **not** impose
+/// `WithContextFormat: Trait` bounds. (`Copy` cannot be derived for this: derive
+/// emits `impl<C: Copy, E: Copy, F: Copy>`, which would leak `F: Copy` and make
+/// `WithContext` `Copy` only when the phantom strategy is — so it is hand-written
+/// as `impl<C: Copy, E: Copy, F>` to match the `F`-free `Clone`.)
 ///
 /// # Example
 /// ```
@@ -75,7 +77,6 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// let w = WithContext::<_, _, Arrow>::new(1, "boom");
 /// assert_eq!(w.to_string(), "1 -> boom");
 /// ```
-#[derive(Copy)]
 pub struct WithContext<C, E, WithContextFormat = Colon> {
     /// The context value tagging this error (e.g. a file path or step number).
     pub context: C,
@@ -129,6 +130,8 @@ impl<C: Clone, E: Clone, F> Clone for WithContext<C, E, F> {
         }
     }
 }
+
+impl<C: Copy, E: Copy, F> Copy for WithContext<C, E, F> {}
 
 impl<C: PartialEq, E: PartialEq, F> PartialEq for WithContext<C, E, F> {
     fn eq(&self, other: &Self) -> bool {

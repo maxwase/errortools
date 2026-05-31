@@ -99,11 +99,17 @@ mod tests {
     }
 
     #[test]
-    fn debug_of_formatted_suggestion_forwards_to_inner_debug() {
-        // Formatted<_, Suggestion> forwards Debug to the inner error's Debug,
-        // not to Suggestion (which is a zero-size tag type).
-        assert_eq!(format!("{:?}", Error::One.suggestion()), "One");
-        assert_eq!(format!("{:?}", NoHint.suggestion()), "NoHint");
+    fn debug_of_formatted_suggestion_surfaces_error_and_strategy() {
+        // Formatted<_, Suggestion> Debug surfaces both the inner error and the
+        // materialized strategy tag.
+        assert_eq!(
+            format!("{:?}", Error::One.suggestion()),
+            "Formatted { error: One, format: Suggestion }"
+        );
+        assert_eq!(
+            format!("{:?}", NoHint.suggestion()),
+            "Formatted { error: NoHint, format: Suggestion }"
+        );
     }
 
     // --- suggestion is orthogonal to Display ---

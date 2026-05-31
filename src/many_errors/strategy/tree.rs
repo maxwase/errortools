@@ -8,6 +8,7 @@
 use core::{
     error::Error,
     fmt::{self, Display},
+    hash::{Hash, Hasher},
     marker::PhantomData,
 };
 
@@ -36,8 +37,30 @@ use crate::{
 /// │  └─ i-0b2: connection refused
 /// └─ eu-west-1: quota exceeded
 /// ```
-#[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Tree<Conn = Unicode, const HEADER: bool = true>(PhantomData<fn() -> Conn>);
+
+// Manual impls so the phantom connector `Conn` gets no `Conn: Trait` bound from
+// derives (the `_format`-style doctrine; see `WithContext`).
+impl<Conn, const HEADER: bool> Default for Tree<Conn, HEADER> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+impl<Conn, const HEADER: bool> Clone for Tree<Conn, HEADER> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<Conn, const HEADER: bool> Copy for Tree<Conn, HEADER> {}
+impl<Conn, const HEADER: bool> PartialEq for Tree<Conn, HEADER> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl<Conn, const HEADER: bool> Eq for Tree<Conn, HEADER> {}
+impl<Conn, const HEADER: bool> Hash for Tree<Conn, HEADER> {
+    fn hash<H: Hasher>(&self, _: &mut H) {}
+}
 
 impl<Conn: fmt::Debug + Default, const HEADER: bool> fmt::Debug for Tree<Conn, HEADER> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

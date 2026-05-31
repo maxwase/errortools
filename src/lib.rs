@@ -9,7 +9,13 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-use core::{error::Error, fmt, iter, marker::PhantomData};
+use core::{
+    error::Error,
+    fmt,
+    hash::{Hash, Hasher},
+    iter,
+    marker::PhantomData,
+};
 
 mod add;
 mod chain;
@@ -56,6 +62,19 @@ pub use with_context::WithContext;
 /// We cannot rely on `fmt::*` traits because:
 /// 1. They accept &self
 /// 1. `Error` already bounds `Display` as a supertrait, which would block composing strategies through types like [`WithContext`].
+///
+/// # `Debug` convention across this crate
+/// Strategy tags carry their configuration only at the type level (in a phantom
+/// `PhantomData<fn() -> _>`), so their `Debug` is hand-written:
+/// - **Pure-strategy types** ([`Chain`], [`Add`], [`Tree`], and [`Formatted`])
+///   materialize the phantom marker via [`Default`] and print its configuration
+///   — these impls bound the marker `…: Debug + Default`, while their
+///   auto-traits ([`Clone`]/[`Copy`]/[`PartialEq`]/[`Eq`]/[`Hash`]) stay free of
+///   any marker bound.
+/// - **Payload types** ([`WithContext`], [`ManyErrors`](crate::ManyErrors),
+///   [`Node`](crate::Node)) print their own name and fields, hiding the phantom
+///   strategy. Thin display adapters ([`DisplayPath`]) instead stay transparent
+///   to mirror their target's `Debug`.
 pub trait Format<E: ?Sized> {
     /// Writes `error` and its source chain to `f` using the strategy.
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result;
@@ -121,8 +140,32 @@ impl<E: Error + ?Sized> FormatError for E {}
 /// `F` is a type-level tag (never instantiated). The `fn() -> F` inside
 /// [`PhantomData`] avoids drop-check ownership of `F` and makes the wrapper
 /// `Send + Sync` regardless of `F`.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Formatted<E, F = Flat>(E, PhantomData<fn() -> F>);
+
+// Manual impls bounding only the real `E`, never the phantom strategy `F`
+// (the `_format`-style doctrine; see `WithContext`).
+impl<E: Clone, F> Clone for Formatted<E, F> {
+    fn clone(&self) -> Self {
+        Formatted(self.0.clone(), PhantomData)
+    }
+}
+impl<E: Copy, F> Copy for Formatted<E, F> {}
+impl<E: Default, F> Default for Formatted<E, F> {
+    fn default() -> Self {
+        Formatted(E::default(), PhantomData)
+    }
+}
+impl<E: PartialEq, F> PartialEq for Formatted<E, F> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl<E: Eq, F> Eq for Formatted<E, F> {}
+impl<E: Hash, F> Hash for Formatted<E, F> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
+    }
+}
 
 impl<E, F> Formatted<E, F> {
     /// Wraps `error` so its `Display` impl uses the [`Format`] strategy `F`.
@@ -141,11 +184,16 @@ impl<E: Error, F: Format<E>> fmt::Display for Formatted<E, F> {
     }
 }
 
-/// Forwards to the inner error's `Debug` rather than printing
-/// `Formatted(.., PhantomData)`. Keeps `{:?}` output of wrapped errors readable.
-impl<E: fmt::Debug, F> fmt::Debug for Formatted<E, F> {
+/// Surfaces both the wrapped error and the active strategy (materialized via
+/// [`Default`], like [`Chain`]/[`Add`]/[`Tree`]) rather than printing
+/// `Formatted(.., PhantomData)`. The `F: Debug + Default` bound applies to this
+/// `Debug` impl only — the auto-trait impls above stay free of any `F` bound.
+impl<E: fmt::Debug, F: fmt::Debug + Default> fmt::Debug for Formatted<E, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.0, f)
+        f.debug_struct("Formatted")
+            .field("error", &self.0)
+            .field("format", &F::default())
+            .finish()
     }
 }
 

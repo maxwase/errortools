@@ -40,12 +40,19 @@ mod tests {
     fn test_one_line_variants() {
         let error = Error::One;
         assert_eq!(error.one_line().to_string(), "One");
-        assert_eq!(format!("{:?}", error.one_line()), "One");
+        // Debug surfaces the wrapped error and the active strategy.
+        assert_eq!(
+            format!("{:?}", error.one_line()),
+            "Formatted { error: One, format: Flat }"
+        );
         assert_eq!(Formatted::<_, Flat>::new(Error::One).to_string(), "One");
 
         let error = Error::Two(Inner::A);
         assert_eq!(error.one_line().to_string(), "Two: InnerA");
-        assert_eq!(format!("{:?}", error.one_line()), "Two(A)");
+        assert_eq!(
+            format!("{:?}", error.one_line()),
+            "Formatted { error: Two(A), format: Flat }"
+        );
     }
 
     #[test]

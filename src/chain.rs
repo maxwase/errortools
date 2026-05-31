@@ -10,7 +10,13 @@
 //!    └─ source 2
 //! ```
 
-use core::{error::Error, fmt, iter, marker::PhantomData};
+use core::{
+    error::Error,
+    fmt,
+    hash::{Hash, Hasher},
+    iter,
+    marker::PhantomData,
+};
 
 use itertools::Itertools;
 
@@ -36,8 +42,30 @@ use crate::{
 ///
 /// Use [`FormatError::chain`](crate::FormatError::chain) for the most common case.
 /// For aggregate many-error rendering see [`Tree`](crate::many_errors::Tree).
-#[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Chain<C = Unicode>(PhantomData<fn() -> C>);
+
+// Manual impls so the phantom connector `C` gets no `C: Trait` bound from
+// derives (the `_format`-style doctrine; see `WithContext`).
+impl<C> Default for Chain<C> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+impl<C> Clone for Chain<C> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<C> Copy for Chain<C> {}
+impl<C> PartialEq for Chain<C> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl<C> Eq for Chain<C> {}
+impl<C> Hash for Chain<C> {
+    fn hash<H: Hasher>(&self, _: &mut H) {}
+}
 
 /// Walks the source chain. Prints the top error on its own line, then each
 /// source on a new line preceded by `(depth - 1)` repetitions of

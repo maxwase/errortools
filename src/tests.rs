@@ -136,6 +136,19 @@ fn _assert_derive_traits() {
     assert_all::<DisplaySwapDebug<DummyError>>();
     assert_all::<Flat>();
     assert_all::<Chain>();
+
+    // The phantom strategy param must NOT leak a `Trait` bound: these must
+    // compile even though `NoTraits` implements nothing.
+    struct NoTraits;
+    assert_all::<Formatted<DummyError, NoTraits>>();
+    assert_all::<Chain<NoTraits>>();
+    assert_all::<Add<NoTraits, NoTraits>>();
+    assert_all::<Tree<NoTraits, true>>();
+
+    // `WithContext` has no `Default`, but its other auto-traits must still be
+    // `F`-free.
+    fn assert_no_default<T: Clone + Copy + PartialEq + Eq + Hash + Send + Sync>() {}
+    assert_no_default::<WithContext<DummyError, DummyError, NoTraits>>();
 }
 
 #[test]

@@ -115,8 +115,11 @@ mod tests {
         let wrapped = DisplaySwapDebug::new(inner);
         // Debug of DisplaySwapDebug = Display of inner = Flat chain.
         assert_eq!(format!("{wrapped:?}"), "Two: InnerA");
-        // Display of DisplaySwapDebug = Debug of inner = forwarded to error's Debug.
-        assert_eq!(wrapped.to_string(), "Two(A)");
+        // Display of DisplaySwapDebug = Debug of inner Formatted = error + strategy.
+        assert_eq!(
+            wrapped.to_string(),
+            "Formatted { error: Two(A), format: Flat }"
+        );
     }
 
     #[test]
@@ -175,8 +178,11 @@ mod tests {
             format!("{wrapped:?}"),
             "One\nTry passing --help to see available options."
         );
-        // Display of DisplaySwapDebug forwards to inner Debug = Error::One's Debug.
-        assert_eq!(wrapped.to_string(), "One");
+        // Display of DisplaySwapDebug = Debug of inner Formatted = error + strategy.
+        assert_eq!(
+            wrapped.to_string(),
+            "Formatted { error: One, format: Add(Add(Flat, NewLine), Suggestion) }"
+        );
     }
 
     #[test]
