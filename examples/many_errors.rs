@@ -34,9 +34,13 @@ fn main() {
     all.push_group("us-east-1", east);
     all.push("eu-west-1", RegionError::Refused);
 
-    // Default Display = Tree with Unicode connectors and count header
-    println!("=== Default (Tree / Unicode) ===");
+    // Default Display = shallow single-line summary (own text only, no source chains)
+    println!("=== Default (Summary / one-line) ===");
     println!("{all}");
+
+    println!();
+    println!("=== Tree (Unicode) ===");
+    println!("{}", all.tree());
 
     println!();
     println!("=== List ===");
@@ -47,8 +51,8 @@ fn main() {
     println!("{}", all.bullets());
 
     println!();
-    println!("=== Inline ===");
-    println!("{}", all.one_line());
+    println!("=== Joined (deep one-line) ===");
+    println!("{}", all.joined());
 
     println!();
     println!("=== ASCII connectors, no header ===");

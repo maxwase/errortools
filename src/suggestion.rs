@@ -125,7 +125,7 @@ mod tests {
         );
         // They can be composed via Add.
         assert_eq!(
-            e.formatted::<Add<crate::Flat, Add<NewLine, crate::Suggestion>>>()
+            e.formatted::<Add<crate::OneLine, Add<NewLine, crate::Suggestion>>>()
                 .to_string(),
             "One\nTry passing --help to see available options.",
         );

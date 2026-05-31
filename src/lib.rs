@@ -34,8 +34,8 @@ pub use chain::Chain;
 pub use connectors::{Ascii, Connectors, TreeConnectors, Unicode};
 pub use main_result::{DisplaySwapDebug, MainResult, MainResultWithSuggestion, WithSuggestion};
 #[cfg(feature = "alloc")]
-pub use many_errors::{Bullets, Inline, List, ManyErrors, Node, Subgroup, Tree};
-pub use oneline::Flat;
+pub use many_errors::{Bullets, Joined, List, ManyErrors, Node, Subgroup, Tree};
+pub use oneline::OneLine;
 #[cfg(feature = "std")]
 pub use path_display::DisplayPath;
 pub use suggestion::{Suggest, Suggestion};
@@ -53,7 +53,7 @@ pub use with_context::WithContext;
 /// without walking the source chain at all.
 ///
 /// `E` is the value being formatted; each strategy declares its own bounds:
-/// [`Flat`] and [`Chain`] require `E: Error`, [`Suggestion`] additionally
+/// [`OneLine`] and [`Chain`] require `E: Error`, [`Suggestion`] additionally
 /// requires [`Suggest`], and field extractors like
 /// [`ContextField`](crate::with_context::ContextField) require `E` to be a
 /// specific shape. The trait itself imposes nothing beyond `?Sized` so
@@ -106,8 +106,8 @@ pub fn chain<'a>(error: &'a dyn Error) -> impl Iterator<Item = &'a dyn Error> + 
 /// A helper trait to format errors.
 pub trait FormatError {
     /// Formats the error in a single line concatenated by `: `.
-    fn one_line(&self) -> Formatted<&Self, Flat> {
-        self.formatted::<Flat>()
+    fn one_line(&self) -> Formatted<&Self, OneLine> {
+        self.formatted::<OneLine>()
     }
 
     /// Formats the error as an indented source-chain ladder.
@@ -140,7 +140,7 @@ impl<E: Error + ?Sized> FormatError for E {}
 /// `F` is a type-level tag (never instantiated). The `fn() -> F` inside
 /// [`PhantomData`] avoids drop-check ownership of `F` and makes the wrapper
 /// `Send + Sync` regardless of `F`.
-pub struct Formatted<E, F = Flat>(E, PhantomData<fn() -> F>);
+pub struct Formatted<E, F = OneLine>(E, PhantomData<fn() -> F>);
 
 // Manual impls bounding only the real `E`, never the phantom strategy `F`
 // (the `_format`-style doctrine; see `WithContext`).

@@ -15,7 +15,7 @@ use core::fmt;
 /// [`Format`] strategy that writes a single line feed and ignores the input.
 ///
 /// Designed as a separator term inside [`Add`], e.g.
-/// `Add<Flat, Add<NewLine, Tree>>`.
+/// `Add<OneLine, Add<NewLine, Tree>>`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NewLine;
 
@@ -89,7 +89,7 @@ pub type WithColonSpace<L, R> = WithSep<L, ColonSpace, R>;
 mod tests {
     use super::*;
     use crate::{
-        Add, Flat, Formatted,
+        Add, Formatted, OneLine,
         tests::{Error, Inner},
     };
 
@@ -97,7 +97,7 @@ mod tests {
     fn test_space_between_repeats() {
         let error = Error::One;
         assert_eq!(
-            Formatted::<_, Add<Flat, Add<Space, Flat>>>::new(error).to_string(),
+            Formatted::<_, Add<OneLine, Add<Space, OneLine>>>::new(error).to_string(),
             "One One"
         );
     }
@@ -107,7 +107,7 @@ mod tests {
         // ColonSpace ignores the error and writes ": ".
         let error = Error::One;
         assert_eq!(
-            Formatted::<_, Add<Flat, Add<ColonSpace, Flat>>>::new(error).to_string(),
+            Formatted::<_, Add<OneLine, Add<ColonSpace, OneLine>>>::new(error).to_string(),
             "One: One"
         );
     }
@@ -116,7 +116,7 @@ mod tests {
     fn test_with_space_alias() {
         let error = Error::One;
         assert_eq!(
-            Formatted::<_, WithSpace<Flat, Flat>>::new(error).to_string(),
+            Formatted::<_, WithSpace<OneLine, OneLine>>::new(error).to_string(),
             "One One"
         );
     }
@@ -125,7 +125,7 @@ mod tests {
     fn test_with_newline_alias() {
         let error = Error::Two(Inner::A);
         assert_eq!(
-            Formatted::<_, WithNewLine<Flat, Flat>>::new(error).to_string(),
+            Formatted::<_, WithNewLine<OneLine, OneLine>>::new(error).to_string(),
             "Two: InnerA\nTwo: InnerA"
         );
     }
@@ -134,7 +134,7 @@ mod tests {
     fn test_with_colon_space_alias() {
         let error = Error::One;
         assert_eq!(
-            Formatted::<_, WithColonSpace<Flat, Flat>>::new(error).to_string(),
+            Formatted::<_, WithColonSpace<OneLine, OneLine>>::new(error).to_string(),
             "One: One"
         );
     }
@@ -143,7 +143,7 @@ mod tests {
     fn test_add_sep_generic_alias() {
         let error = Error::One;
         assert_eq!(
-            Formatted::<_, WithSep<Flat, Colon, Flat>>::new(error).to_string(),
+            Formatted::<_, WithSep<OneLine, Colon, OneLine>>::new(error).to_string(),
             "One:One"
         );
     }

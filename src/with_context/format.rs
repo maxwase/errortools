@@ -84,6 +84,7 @@ pub type PathColon = WithColonSpace<ContextPath, ErrorField>;
 mod tests {
     use super::*;
     use crate::{WithContext, separator::WithSpace, tests::Inner};
+    #[cfg(feature = "std")]
     use std::io;
 
     /// `PathColon` formats path contexts directly, without a wrapper newtype.

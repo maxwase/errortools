@@ -131,10 +131,10 @@ fn _assert_derive_traits() {
     impl core::error::Error for DummyError {}
 
     fn assert_all<T: Clone + Copy + Default + PartialEq + Eq + Hash + Send + Sync>() {}
-    assert_all::<Formatted<DummyError, Flat>>();
+    assert_all::<Formatted<DummyError, OneLine>>();
     assert_all::<Formatted<DummyError, Chain>>();
     assert_all::<DisplaySwapDebug<DummyError>>();
-    assert_all::<Flat>();
+    assert_all::<OneLine>();
     assert_all::<Chain>();
 
     // The phantom strategy param must NOT leak a `Trait` bound: these must
@@ -200,10 +200,11 @@ fn test_many_variant() {
     errs.push("b", Inner::B);
     let e = Error::Many(errs);
     assert_eq!(e.to_string(), "Many");
-    // ManyErrors is the source; one_line walks the chain and embeds ManyErrors::Display (Tree).
+    // ManyErrors is the source; one_line walks the chain and embeds
+    // ManyErrors::Display, now the shallow single-line Summary.
     assert_eq!(
         e.one_line().to_string(),
-        "Many: 2 errors:\n├─ a: InnerA\n└─ b: InnerB"
+        "Many: 2 errors: a: InnerA; b: InnerB"
     );
 }
 

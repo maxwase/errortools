@@ -192,11 +192,11 @@ println!("{}", my_error.formatted::<Arrow>()); // outer -> middle -> inner
 `Add<L, R>` glues two `Format` strategies together. Both run against the same value, left then right. There's no built-in separator, drop a separator strategy (`NewLine`, `Space`, `Colon`, `ColonSpace`, `Empty`) in between, or reach for the three-arg `WithSep<L, Sep, R>` alias when you'd otherwise nest:
 
 ```rust,ignore
-use errortools::{Formatted, Flat, Suggestion, separator::{NewLine, WithSep}};
+use errortools::{Formatted, OneLine, Suggestion, separator::{NewLine, WithSep}};
 
-// Same as Add<Add<Flat, NewLine>, Suggestion>. Renders:
+// Same as Add<Add<OneLine, NewLine>, Suggestion>. Renders:
 // "<one-line chain>\n<top-level suggestion>"
-type Brief = WithSep<Flat, NewLine, Suggestion>;
+type Brief = WithSep<OneLine, NewLine, Suggestion>;
 
 eprintln!("{}", Formatted::<_, Brief>::new(err));
 ```
@@ -205,13 +205,13 @@ For the common separators there are zero-think aliases — `WithSpace<L, R>`,
 `WithNewLine<L, R>`, `WithColonSpace<L, R>` — all in `errortools::separator`:
 
 ```rust,ignore
-use errortools::{Formatted, Flat, Suggestion, separator::WithNewLine};
+use errortools::{Formatted, OneLine, Suggestion, separator::WithNewLine};
 
-type Brief = WithNewLine<Flat, Suggestion>;
+type Brief = WithNewLine<OneLine, Suggestion>;
 eprintln!("{}", Formatted::<_, Brief>::new(err));
 ```
 
-Bounds compose: `Add<Flat, Suggestion>` only implements `Format<E>` when
+Bounds compose: `Add<OneLine, Suggestion>` only implements `Format<E>` when
 `E: Error + Suggest`, because `Suggestion`'s impl carries that bound.
 
 The same combinator powers the `WithContext` default — `Colon` is just a type
@@ -264,7 +264,7 @@ The idea is that every error that is supposed to have a suggestion should implem
 
 ## Many errors at once
 
-Some operations shouldn't stop at the first failure — validating a config, deploying to every region, parsing a batch. You want all of them, grouped and readable. That's `ManyErrors<C, E>`: a context-tagged collection that renders as a tree.
+Some operations shouldn't stop at the first failure — validating a config, deploying to every region, parsing a batch. You want all of them, grouped and readable. That's `ManyErrors<C, E>`: a context-tagged collection you can render as a tree, list, or single line.
 
 ```rust,ignore
 use errortools::ManyErrors;
@@ -278,7 +278,7 @@ errs.into_result(())?; // Ok if empty, Err(ManyErrors) otherwise
 
 It costs nothing until it has to: `None` while empty, one inline slot for the first error, a `Vec` only once a second arrives. You can also collect straight from an iterator of `(context, error)` pairs or `WithContext` values — including itertools' `partition_result`.
 
-Group related failures with `push_group` and the tree nests:
+Group related failures with `push_group` and the shapes nest. `tree()` gives the Unicode tree, walking each error's source chain:
 
 ```text
 2 errors:
@@ -288,12 +288,19 @@ Group related failures with `push_group` and the tree nests:
 └─ eu-west-1: connection refused
 ```
 
-The default `Display` is the Unicode tree above. Want another shape? `list()`, `bullets()`, and `one_line()` are inherent helpers, no turbofish:
+The default `Display` (`{errs}`) is deliberately a shallow one-line *summary* — each error's own text, no source chains — so it's safe to embed in a message or log, following the Rust convention that an error's `Display` is its own message:
+
+```text
+2 errors: us-east-1 (2 errors: i-0a1: connection refused; i-0b2: timed out); eu-west-1: connection refused
+```
+
+For the full picture, the shapes are inherent helpers, no turbofish — `tree()` and `joined()` walk the source chains, `list()` and `bullets()` too:
 
 ```rust,ignore
+println!("{}", errs.tree());      // Unicode tree (above)
 println!("{}", errs.list());      // 1.  1.1.  2.
 println!("{}", errs.bullets());   // • bulleted
-println!("{}", errs.one_line());  // ;-separated, parens around groups
+println!("{}", errs.joined());    // ;-separated one line, parens around groups
 ```
 
 For full control — ASCII connectors, no count header — go through `formatted`: `Formatted::<_, Tree<Ascii, false>>::new(&errs)`.
@@ -305,9 +312,9 @@ Group labels can differ from leaf contexts via the third parameter, `ManyErrors<
 `MainResult<E, F>` is a type alias:
 
 ```rust
-use errortools::{DisplaySwapDebug, Formatted, Flat};
+use errortools::{DisplaySwapDebug, Formatted, OneLine};
 
-pub type MainResult<E, F = Flat, T = ()> = Result<T, DisplaySwapDebug<Formatted<E, F>>>;
+pub type MainResult<E, F = OneLine, T = ()> = Result<T, DisplaySwapDebug<Formatted<E, F>>>;
 ```
 
 `DisplaySwapDebug` swaps the `Debug` and `Display` impls of its inner type. When `main` prints the error via `Debug`, it ends up reaching the `Display` output instead, formatted by the chosen strategy. `?` converts your error automatically via the blanket `From` impl.
@@ -318,7 +325,7 @@ Runnable examples in [`examples/`](https://github.com/maxwase/errortools/tree/ma
 
 | Example | What it shows |
 |---|---|
-| [`one_line`](https://github.com/maxwase/errortools/blob/master/examples/one_line.rs) | `MainResult` with default `Flat` format |
+| [`one_line`](https://github.com/maxwase/errortools/blob/master/examples/one_line.rs) | `MainResult` with default `OneLine` format |
 | [`tree`](https://github.com/maxwase/errortools/blob/master/examples/tree.rs) | `MainResult<E, Chain>` for indented multi-line output |
 | [`format_error`](https://github.com/maxwase/errortools/blob/master/examples/format_error.rs) | `FormatError` trait for ad-hoc formatting |
 | [`custom_format`](https://github.com/maxwase/errortools/blob/master/examples/custom_format.rs) | A custom `Format` strategy |

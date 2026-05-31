@@ -75,7 +75,7 @@ impl<C, GC, E, F, GF, Conn, const HEADER: bool> Format<ManyErrors<C, E, GC, F, G
     for Tree<Conn, HEADER>
 where
     C: Display,
-    E: Error + Display + 'static,
+    E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,
     Conn: TreeConnectors,
@@ -91,7 +91,7 @@ impl<C, GC, E, F, GF, Conn, const HEADER: bool> Format<&ManyErrors<C, E, GC, F, 
     for Tree<Conn, HEADER>
 where
     C: Display,
-    E: Error + Display + 'static,
+    E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,
     Conn: TreeConnectors,
@@ -170,13 +170,13 @@ fn draw_many<Conn, C, GC, E, F, GF>(
 ) -> fmt::Result
 where
     C: Display,
-    E: Error + Display + 'static,
+    E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,
     Conn: TreeConnectors,
 {
     match errors {
-        ManyErrors::None => Ok(()),
+        ManyErrors::None => write!(f, "no errors"),
         ManyErrors::One(node) => draw_node::<Conn, C, GC, E, F, GF>(node, levels, f),
         ManyErrors::Many(nodes) => {
             let pre_first = if show_header {
@@ -199,7 +199,7 @@ fn draw_children<Conn, C, GC, E, F, GF>(
 ) -> fmt::Result
 where
     C: Display,
-    E: Error + Display + 'static,
+    E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,
     Conn: TreeConnectors,
@@ -229,7 +229,7 @@ fn draw_node<Conn, C, GC, E, F, GF>(
 ) -> fmt::Result
 where
     C: Display,
-    E: Error + Display + 'static,
+    E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,
     Conn: TreeConnectors,
@@ -240,7 +240,7 @@ where
             draw_error_chain::<Conn>(w.error.source(), levels, f)
         }
         Node::Group(w) => match w.error.as_ref() {
-            ManyErrors::None => indented::<Conn>(f, levels, 0, format_args!("{w}: (no errors)")),
+            ManyErrors::None => indented::<Conn>(f, levels, 0, format_args!("{w}: no errors")),
             ManyErrors::One(inner) => {
                 indented::<Conn>(f, levels, 0, format_args!("{w}: "))?;
                 draw_node::<Conn, C, GC, E, F, GF>(inner, levels, f)
@@ -290,7 +290,14 @@ mod tests {
     #[test]
     fn test_tree_empty() {
         let e = ManyErrors::<&str, Inner>::new();
-        assert_eq!(e.tree().to_string(), "");
+        assert_eq!(e.tree().to_string(), "no errors");
+    }
+
+    #[test]
+    fn test_tree_empty_group() {
+        let mut outer = ManyErrors::<&str, Inner>::new();
+        outer.push_group("g", ManyErrors::new());
+        assert_eq!(outer.tree().to_string(), "g: no errors");
     }
 
     #[test]

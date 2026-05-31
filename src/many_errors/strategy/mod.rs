@@ -1,34 +1,41 @@
-//! Aggregate format strategies for [`ManyErrors`]: [`Tree`], [`List`], [`Bullets`], [`Inline`].
+//! Aggregate format strategies for [`ManyErrors`]: [`Tree`], [`List`], [`Bullets`], [`Joined`].
 //!
 //! All strategies implement [`Format<ManyErrors<…>>`] (and the ref trampoline
 //! [`Format<&ManyErrors<…>>`]) so they work with both `Display` and
 //! [`Formatted`](crate::Formatted) wrappers.
+//!
+//! `Summary` is the crate-internal shallow strategy backing the default
+//! [`Display`](core::fmt::Display): own text only, no source chains.
 //!
 //! Group headers are rendered through the group's own label strategy `GF` via
 //! `write!(f, "{w}")` (default [`ContextField`](crate::with_context::ContextField):
 //! the label only); the structural ` (N errors):` / `: ` and children are added
 //! by the aggregate strategy itself.
 
-use core::{error::Error, fmt};
-
 mod bullets;
-mod inline;
 mod list;
+mod one_line;
 mod tree;
 
 pub use bullets::Bullets;
-pub use inline::Inline;
 pub use list::List;
+pub use one_line::Joined;
+pub(crate) use one_line::Summary;
 pub use tree::Tree;
 
 /// Emits the `Format<ManyErrors<…>>` impl and its `Format<&ManyErrors<…>>` ref
-/// trampoline for an aggregate strategy with no extra generic parameters. The
-/// closure-like argument names the entry-point `draw_*_many` call.
+/// trampoline for an aggregate strategy with no extra generic parameters.
+///
+/// `[$($cbound)*]` is appended to the leaf-context bound `C: Display`: pass
+/// `[+ ::core::fmt::Debug]` for strategies whose leaves go through the
+/// chain-walking [`OneLine`](crate::OneLine) (which needs `WithContext: Error`,
+/// hence `C: Debug`), or `[]` for shallow strategies. The closure-like argument
+/// names the entry-point `draw_*` call.
 macro_rules! impl_aggregate_format {
-    ($strategy:ident, |$errors:ident, $f:ident| $call:expr) => {
+    ($strategy:ident, [$($cbound:tt)*], |$errors:ident, $f:ident| $call:expr) => {
         impl<C, E, GC, F, GF> $crate::Format<$crate::ManyErrors<C, E, GC, F, GF>> for $strategy
         where
-            C: ::core::fmt::Display,
+            C: ::core::fmt::Display $($cbound)*,
             E: ::core::error::Error + ::core::fmt::Display + 'static,
             F: $crate::Format<$crate::with_context::WithContext<C, E, F>>,
             GF: $crate::Format<$crate::many_errors::Subgroup<C, E, GC, F, GF>>,
@@ -43,7 +50,7 @@ macro_rules! impl_aggregate_format {
 
         impl<C, E, GC, F, GF> $crate::Format<&$crate::ManyErrors<C, E, GC, F, GF>> for $strategy
         where
-            C: ::core::fmt::Display,
+            C: ::core::fmt::Display $($cbound)*,
             E: ::core::error::Error + ::core::fmt::Display + 'static,
             F: $crate::Format<$crate::with_context::WithContext<C, E, F>>,
             GF: $crate::Format<$crate::many_errors::Subgroup<C, E, GC, F, GF>>,
@@ -59,21 +66,6 @@ macro_rules! impl_aggregate_format {
 }
 
 pub(crate) use impl_aggregate_format;
-
-/// Write the source chain as `": {src1}: {src2}: ..."` on the current line.
-///
-/// Shared by the [`List`], [`Bullets`], and [`Inline`] leaf renderers.
-pub(super) fn inline_sources(
-    source: Option<&dyn Error>,
-    f: &mut fmt::Formatter<'_>,
-) -> fmt::Result {
-    let mut opt_src = source;
-    while let Some(src) = opt_src {
-        write!(f, ": {src}")?;
-        opt_src = src.source();
-    }
-    Ok(())
-}
 
 #[cfg(test)]
 pub(super) mod test_helpers {

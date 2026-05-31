@@ -5,19 +5,19 @@
 
 use core::{
     error::Error,
-    fmt::{self, Display},
+    fmt::{self, Debug, Display},
     iter,
 };
 
 use itertools::Itertools;
 
 use crate::{
-    Format,
+    Format, OneLine,
     many_errors::{ManyErrors, Node, Subgroup},
     with_context::WithContext,
 };
 
-use super::{impl_aggregate_format, inline_sources};
+use super::impl_aggregate_format;
 
 /// Aggregate strategy that renders a [`ManyErrors`] as a numbered list.
 ///
@@ -31,13 +31,17 @@ use super::{impl_aggregate_format, inline_sources};
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct List;
 
-impl_aggregate_format!(List, |errors, f| draw_list_many::<C, E, GC, F, GF>(
-    errors, 0, f
-));
+impl_aggregate_format!(List, [+ ::core::fmt::Debug], |errors, f| draw_list_many::<
+    C,
+    E,
+    GC,
+    F,
+    GF,
+>(errors, 0, f));
 
 /// Render `errors` as a numbered list at nesting `depth`.
 ///
-/// - `None` writes nothing.
+/// - `None` writes `"no errors"`.
 /// - `One` delegates straight to [`draw_list_node`] with no header or number
 ///   (a lone error reads better inline than as `1. ...`).
 /// - `Many` writes the `"N errors:"` header, then one `"{indent}{i}. "` prefix
@@ -52,13 +56,13 @@ fn draw_list_many<C, E, GC, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    C: Display,
-    E: Error + Display + 'static,
+    C: Display + Debug,
+    E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,
 {
     match errors {
-        ManyErrors::None => Ok(()),
+        ManyErrors::None => write!(f, "no errors"),
         ManyErrors::One(node) => draw_list_node::<C, E, GC, F, GF>(node, depth, f),
         ManyErrors::Many(nodes) => {
             write!(f, "{} errors:", nodes.len())?;
@@ -75,11 +79,12 @@ where
 /// Render a single node; the `"{i}. "` prefix has already been written by the
 /// caller.
 ///
-/// - `Leaf` writes the context/error pair (`{w}`), then appends its source
-///   chain inline via [`inline_sources`] (`": src1: src2"`) — lists keep each
-///   entry on one logical line.
+/// - `Leaf` renders the whole pair on one logical line via the [`OneLine`]
+///   strategy: `{w}` (context/error through `F`) followed by its source chain
+///   joined with `": "` — `WithContext`'s own `Display`/`Error::source` give
+///   exactly that.
 /// - `Group` writes the label, then:
-///   - empty group → `"{w}: (no errors)"`;
+///   - empty group → `"{w}: no errors"`;
 ///   - single child → `"{w}: "` and recurse at the *same* `depth` (the child
 ///     is rendered inline after the colon, not as a new numbered row);
 ///   - many children → `"{w} (N errors):"` header, then a fresh numbered list
@@ -90,18 +95,15 @@ fn draw_list_node<C, E, GC, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    C: Display,
-    E: Error + Display + 'static,
+    C: Display + Debug,
+    E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,
 {
     match node {
-        Node::Leaf(w) => {
-            write!(f, "{w}")?;
-            inline_sources(w.error.source(), f)
-        }
+        Node::Leaf(w) => <OneLine as Format<_>>::fmt(w, f),
         Node::Group(w) => match w.error.as_ref() {
-            ManyErrors::None => write!(f, "{w}: (no errors)"),
+            ManyErrors::None => write!(f, "{w}: no errors"),
             ManyErrors::One(inner) => {
                 write!(f, "{w}: ")?;
                 draw_list_node::<C, E, GC, F, GF>(inner, depth, f)
@@ -121,14 +123,58 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::many_errors::strategy::test_helpers::two_leaves;
+    use crate::ManyErrors;
+    use crate::many_errors::strategy::test_helpers::{two_leaves, with_chain};
+    use crate::tests::Inner;
+
+    #[test]
+    fn test_list_empty() {
+        let e = ManyErrors::<&str, Inner>::new();
+        assert_eq!(e.list().to_string(), "no errors");
+    }
+
+    #[test]
+    fn test_list_single_leaf_no_header() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("ctx", Inner::A);
+        assert_eq!(e.list().to_string(), "ctx: InnerA");
+    }
 
     #[test]
     fn test_list_two_leaves() {
-        let e = two_leaves();
-        let s = e.list().to_string();
-        assert!(s.contains("2 errors:"), "got: {s}");
-        assert!(s.contains("1. a: InnerA"), "got: {s}");
-        assert!(s.contains("2. b: InnerB"), "got: {s}");
+        assert_eq!(
+            two_leaves().list().to_string(),
+            "2 errors:\n1. a: InnerA\n2. b: InnerB"
+        );
+    }
+
+    /// Leaves walk their source chain via `OneLine`.
+    #[test]
+    fn test_list_walks_source_chain() {
+        let s = with_chain().list().to_string();
+        assert!(s.contains("1. a: mid: InnerA"), "got: {s}");
+        assert!(s.contains("2. b: mid: InnerB"), "got: {s}");
+    }
+
+    #[test]
+    fn test_list_nested_group() {
+        let mut inner = ManyErrors::<&str, Inner>::new();
+        inner.push("x", Inner::A);
+        inner.push("y", Inner::B);
+        let mut outer = ManyErrors::<&str, Inner>::new();
+        outer.push("leaf", Inner::A);
+        outer.push_group("region", inner);
+
+        assert_eq!(
+            outer.list().to_string(),
+            "2 errors:\n1. leaf: InnerA\n2. region (2 errors):\n    1. x: InnerA\n    2. y: InnerB"
+        );
+    }
+
+    #[test]
+    fn test_list_empty_group() {
+        let mut outer = ManyErrors::<&str, Inner>::new();
+        outer.push_group("g", ManyErrors::new());
+        assert_eq!(outer.list().to_string(), "g: no errors");
     }
 }

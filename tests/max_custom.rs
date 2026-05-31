@@ -131,7 +131,7 @@ fn fully_custom_tree() {
     assert_eq!(rendered, expected);
 
     assert_eq!(
-        outer.one_line().to_string(),
+        outer.joined().to_string(),
         "2 errors: {us-east#3} (2 errors: config ▸ operation failed: fsync « write failed: disk full; network ▸ operation failed: connect « write failed: disk full); startup ▸ operation failed: load « write failed: disk full"
     );
 }
@@ -207,7 +207,7 @@ fn malformed_messages_and_strategies() {
 
     // Manual print: shows the actual garbled layout (run with `--nocapture`).
     println!("--- tree ---\n{rendered}");
-    println!("--- one line ---\n{}", outer.one_line());
+    println!("--- one line ---\n{}", outer.joined());
 
     let expected_tree = "\
 2 errors:
@@ -236,8 +236,8 @@ fn malformed_messages_and_strategies() {
 
     assert_eq!(rendered, expected_tree);
 
-    // `one_line` (the Inline strategy) is single-line by design: it keeps its own
-    // `; ` / `: ` separators and passes embedded control chars through untouched
+    // `joined` (the deep single-line strategy) keeps its own `; ` / `: `
+    // separators and passes embedded control chars through untouched
     // (re-indentation only applies to the structural tree renderer).
     let expected_one_line = "\
 2 errors: [us\teast#9]
@@ -254,5 +254,5 @@ up
 failed: load\t=> write\tfailed: disk
 \tfull";
 
-    assert_eq!(outer.one_line().to_string(), expected_one_line);
+    assert_eq!(outer.joined().to_string(), expected_one_line);
 }

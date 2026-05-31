@@ -19,7 +19,7 @@ mod strategy;
 
 pub use crate::connectors::{Ascii, Connectors, TreeConnectors, Unicode};
 pub use node::{Node, Subgroup};
-pub use strategy::{Bullets, Inline, List, Tree};
+pub use strategy::{Bullets, Joined, List, Tree};
 
 /// Zero or more context-tagged errors, arranged as a rose tree.
 ///
@@ -27,11 +27,11 @@ pub use strategy::{Bullets, Inline, List, Tree};
 /// sub-group (another `ManyErrors`). The three-variant split avoids heap
 /// allocation until a second error arrives.
 ///
-/// [`Display`] renders via [`Tree`] (branching Unicode tree with a count
-/// header). Other shapes — [`List`], [`Bullets`], [`Inline`] — are available
-/// via the inherent helpers [`tree`](ManyErrors::tree),
-/// [`list`](ManyErrors::list), [`bullets`](ManyErrors::bullets),
-/// [`one_line`](ManyErrors::one_line), or via
+/// [`Display`] renders a shallow single-line summary (each error's own text, no
+/// source chains). Source-walking shapes — [`Tree`], [`List`], [`Bullets`],
+/// [`Joined`] — are available via the inherent helpers
+/// [`tree`](ManyErrors::tree), [`list`](ManyErrors::list),
+/// [`bullets`](ManyErrors::bullets), [`joined`](ManyErrors::joined), or via
 /// [`FormatError::formatted`](crate::FormatError::formatted) for full generic
 /// control (e.g. `Tree<Ascii, false>`).
 ///
@@ -218,21 +218,25 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     }
 
     /// Renders on a single line: `;`-separated siblings, parens around groups.
-    pub fn one_line(&self) -> crate::Formatted<&Self, Inline> {
+    pub fn joined(&self) -> crate::Formatted<&Self, Joined> {
         crate::Formatted::new(self)
     }
 }
 
-/// Renders each error as a branching Unicode tree with a count header.
+/// Renders a shallow, single-line summary: `"N errors: child1; child2; …"`,
+/// each child's own text only (no source chains). This is the Rust-convention
+/// error message; for source-walking shapes use [`tree`](ManyErrors::tree),
+/// [`joined`](ManyErrors::joined), [`list`](ManyErrors::list), or
+/// [`bullets`](ManyErrors::bullets).
 impl<C, E, GC, F, GF> Display for ManyErrors<C, E, GC, F, GF>
 where
     C: Display,
-    E: Error + Display + 'static,
+    E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        <Tree as Format<Self>>::fmt(self, f)
+        <strategy::Summary as Format<Self>>::fmt(self, f)
     }
 }
 
@@ -240,19 +244,16 @@ impl<C, E, GC, F, GF> Error for ManyErrors<C, E, GC, F, GF>
 where
     C: Display + core::fmt::Debug,
     GC: core::fmt::Debug,
-    E: Error + Display + 'static,
+    E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,
 {
-    /// For [`Self::One`] holding a leaf, returns the inner error's source so
-    /// chain-walking strategies don't duplicate it. Groups and `Many` variants
-    /// have no single source.
+    /// Always `None`: an aggregate of independent sibling errors has no single
+    /// linear cause, so it exposes nothing through [`Error::source`]. Inspect
+    /// the children directly, or render the full chains via a strategy
+    /// ([`tree`](Self::tree), [`joined`](Self::joined), …).
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::None | Self::Many(_) => None,
-            Self::One(Node::Leaf(w)) => w.error.source(),
-            Self::One(Node::Group(_)) => None,
-        }
+        None
     }
 }
 
@@ -351,11 +352,11 @@ mod tests {
     }
 
     #[test]
-    fn test_source_one_leaf_skips_inner_error() {
+    fn test_source_one_leaf_is_none() {
+        // An aggregate has no single linear cause, even with one leaf.
         let mut e = ManyErrors::<&str, Mid>::new();
         e.push("ctx", Mid::Inner(Inner::A));
-        let src = e.source().expect("should have source");
-        assert_eq!(src.to_string(), "InnerA");
+        assert!(e.source().is_none());
     }
 
     #[test]
@@ -375,12 +376,12 @@ mod tests {
         assert!(e.source().is_none());
     }
 
-    // --- Display (Tree) ---
+    // --- Display (Summary: shallow, single-line, no source chains) ---
 
     #[test]
     fn test_display_empty() {
         let e = ManyErrors::<&str, Inner>::new();
-        assert_eq!(e.to_string(), "");
+        assert_eq!(e.to_string(), "no errors");
     }
 
     #[test]
@@ -392,11 +393,22 @@ mod tests {
     }
 
     #[test]
-    fn test_display_two_leaves_with_header() {
+    fn test_display_two_leaves() {
         let mut e = ManyErrors::<&str, Inner>::new();
         e.push("a", Inner::A);
         e.push("b", Inner::B);
-        assert_eq!(e.to_string(), "2 errors:\n├─ a: InnerA\n└─ b: InnerB");
+        assert_eq!(e.to_string(), "2 errors: a: InnerA; b: InnerB");
+    }
+
+    /// Default Display does not walk a leaf's source chain.
+    #[test]
+    fn test_display_does_not_walk_source() {
+        let mut e = ManyErrors::<&str, Mid>::new();
+        e.push("a", Mid::Inner(Inner::A));
+        e.push("b", Mid::Inner(Inner::B));
+        let s = e.to_string();
+        assert_eq!(s, "2 errors: a: mid; b: mid");
+        assert!(!s.contains("InnerA"), "source must not be walked: {s}");
     }
 
     #[test]
@@ -406,19 +418,19 @@ mod tests {
         inner.push("y", Inner::B);
 
         let mut outer = ManyErrors::<&str, Inner>::new();
-        outer.push_group("region", inner);
         outer.push("leaf", Inner::A);
+        outer.push_group("region", inner);
 
-        let s = outer.to_string();
-        assert!(s.contains("2 errors:"), "got: {s}");
-        assert!(s.contains("region (2 errors):"), "got: {s}");
-        assert!(s.contains("leaf: InnerA"), "got: {s}");
+        assert_eq!(
+            outer.to_string(),
+            "2 errors: leaf: InnerA; region (2 errors: x: InnerA; y: InnerB)"
+        );
     }
 
     #[test]
     fn test_one_line_single_leaf_walks_chain() {
         let mut e = ManyErrors::<&str, Mid>::new();
         e.push("ctx", Mid::Inner(Inner::A));
-        assert_eq!(e.one_line().to_string(), "ctx: mid: InnerA");
+        assert_eq!(e.joined().to_string(), "ctx: mid: InnerA");
     }
 }

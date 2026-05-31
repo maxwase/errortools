@@ -3,14 +3,14 @@ use core::fmt;
 
 use crate::separator::{NewLine, WithSep};
 
-use super::{Flat, Format, Formatted};
+use super::{Format, Formatted, OneLine};
 
 /// A result type that wraps an error with [Formatted] and [DisplaySwapDebug] to output from the `main` function.
 ///
-/// The format strategy `F` defaults to [`Flat`]; pass [`crate::Tree`] or a custom [`Format`]
+/// The format strategy `F` defaults to [`OneLine`]; pass [`crate::Tree`] or a custom [`Format`]
 /// to change how the error is rendered when `main` returns `Err`.
 /// The success type `T` defaults to `()`; pass `ExitCode` or another type to return from `main`.
-pub type MainResult<E, F = Flat, T = ()> =
+pub type MainResult<E, F = OneLine, T = ()> =
     core::result::Result<T, DisplaySwapDebug<Formatted<E, F>>>;
 
 /// A result type that wraps an error with [Formatted] and [DisplaySwapDebug] to output from the `main` function, with an additional suggestion.
@@ -18,16 +18,16 @@ pub type MainResult<E, F = Flat, T = ()> =
 /// See [`MainResult`] for details on the type parameters.
 /// The suggestion is rendered after the error, separated by a newline. To customize the separator, use `MainResult` with a custom `Format` that combines the error and suggestion as desired.
 /// If [`Suggestion::fmt`](crate::Suggestion::fmt) produces an empty string, the separator is still printed.
-pub type MainResultWithSuggestion<E, F = Flat, T = ()> =
+pub type MainResultWithSuggestion<E, F = OneLine, T = ()> =
     core::result::Result<T, DisplaySwapDebug<Formatted<E, WithSuggestion<F, NewLine>>>>;
 
 /// A helper type to combine an error format strategy `F` with a suggestion, separated by `Sep`.
 /// Used by `MainResultWithSuggestion` to render the error and suggestion together.
-/// `F` defaults to [`Flat`] and `Sep` defaults to a newline, but you can customize both to achieve different layouts.
+/// `F` defaults to [`OneLine`] and `Sep` defaults to a newline, but you can customize both to achieve different layouts.
 ///
 /// Equivalent to [`WithSep<F, Sep, Suggestion>`].
 /// If [`Suggestion::fmt`](crate::Suggestion::fmt) produces an empty string, the separator is still printed.
-pub type WithSuggestion<F = Flat, Sep = NewLine> = WithSep<F, Sep, crate::Suggestion>;
+pub type WithSuggestion<F = OneLine, Sep = NewLine> = WithSep<F, Sep, crate::Suggestion>;
 
 /// Wrapper that swaps an inner type's [`fmt::Debug`] and [`fmt::Display`] impls.
 ///
@@ -111,14 +111,14 @@ mod tests {
 
     #[test]
     fn test_swap_with_formatted() {
-        let inner = Formatted::<_, Flat>::new(Error::Two(Inner::A));
+        let inner = Formatted::<_, OneLine>::new(Error::Two(Inner::A));
         let wrapped = DisplaySwapDebug::new(inner);
-        // Debug of DisplaySwapDebug = Display of inner = Flat chain.
+        // Debug of DisplaySwapDebug = Display of inner = OneLine chain.
         assert_eq!(format!("{wrapped:?}"), "Two: InnerA");
         // Display of DisplaySwapDebug = Debug of inner Formatted = error + strategy.
         assert_eq!(
             wrapped.to_string(),
-            "Formatted { error: Two(A), format: Flat }"
+            "Formatted { error: Two(A), format: OneLine }"
         );
     }
 
@@ -130,7 +130,7 @@ mod tests {
         );
 
         assert_eq!(
-            DisplaySwapDebug::new(&DisplaySwapDebug::new(Formatted::<_, Flat>::new(
+            DisplaySwapDebug::new(&DisplaySwapDebug::new(Formatted::<_, OneLine>::new(
                 Error::One
             )))
             .to_string(),
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_with_suggestion_custom_separator() {
-        let formatted = Formatted::<_, WithSuggestion<Flat, Space>>::new(Error::One);
+        let formatted = Formatted::<_, WithSuggestion<OneLine, Space>>::new(Error::One);
         assert_eq!(
             formatted.to_string(),
             "One Try passing --help to see available options."
@@ -181,7 +181,7 @@ mod tests {
         // Display of DisplaySwapDebug = Debug of inner Formatted = error + strategy.
         assert_eq!(
             wrapped.to_string(),
-            "Formatted { error: One, format: Add(Add(Flat, NewLine), Suggestion) }"
+            "Formatted { error: One, format: Add(Add(OneLine, NewLine), Suggestion) }"
         );
     }
 
@@ -189,7 +189,7 @@ mod tests {
     fn test_main_result_with_suggestion_exit_code() {
         use std::process::ExitCode;
 
-        fn main_with_error(err: bool) -> MainResultWithSuggestion<Error, Flat, ExitCode> {
+        fn main_with_error(err: bool) -> MainResultWithSuggestion<Error, OneLine, ExitCode> {
             if err {
                 Err(Error::One)?;
             }
@@ -208,7 +208,7 @@ mod tests {
     fn test_main_result_with_exit_code() {
         use std::process::ExitCode;
 
-        fn main_with_error(err: bool) -> MainResult<Error, Flat, ExitCode> {
+        fn main_with_error(err: bool) -> MainResult<Error, OneLine, ExitCode> {
             if err {
                 Err(Error::One)?;
             }
