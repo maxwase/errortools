@@ -3,9 +3,10 @@
 use core::{
     error::Error,
     fmt::{self, Display, Formatter},
-    hash::{Hash, Hasher},
 };
 use std::fmt::Debug;
+
+use derive_where::derive_where;
 
 use alloc::{boxed::Box, vec, vec::Vec};
 
@@ -58,10 +59,11 @@ pub use strategy::{Bullets, Joined, List, Tree};
 /// errs.push("step 1", io::Error::other("fail"));
 /// assert_eq!(errs.len(), 1);
 /// ```
-#[derive(Default)]
+#[derive_where(Clone, PartialEq, Eq, Hash; C, E, GC)]
+#[derive_where(Default)]
 pub enum ManyErrors<C, E, GC = C, F = Colon, GF = ContextField> {
     /// No errors recorded.
-    #[default]
+    #[derive_where(default)]
     None,
     /// Exactly one child.
     One(Node<C, E, GC, F, GF>),
@@ -69,48 +71,14 @@ pub enum ManyErrors<C, E, GC = C, F = Colon, GF = ContextField> {
     Many(Vec<Node<C, E, GC, F, GF>>),
 }
 
-// Manual trait impls so F/GF get no extra Trait bounds from derives.
-
+// `Debug` stays manual: `Many` renders as a bare list (not a `Many(..)` tuple)
+// and `None` prints as the bare string — custom output, not a std-shaped derive.
 impl<C: Debug, E: Debug, GC: Debug, F, GF> Debug for ManyErrors<C, E, GC, F, GF> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::None => write!(f, "None"),
             Self::One(n) => f.debug_tuple("One").field(n).finish(),
             Self::Many(v) => f.debug_list().entries(v.iter()).finish(),
-        }
-    }
-}
-
-impl<C: Clone, E: Clone, GC: Clone, F, GF> Clone for ManyErrors<C, E, GC, F, GF> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::None => Self::None,
-            Self::One(n) => Self::One(n.clone()),
-            Self::Many(v) => Self::Many(v.clone()),
-        }
-    }
-}
-
-impl<C: PartialEq, E: PartialEq, GC: PartialEq, F, GF> PartialEq for ManyErrors<C, E, GC, F, GF> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::None, Self::None) => true,
-            (Self::One(a), Self::One(b)) => a == b,
-            (Self::Many(a), Self::Many(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
-impl<C: Eq, E: Eq, GC: Eq, F, GF> Eq for ManyErrors<C, E, GC, F, GF> {}
-
-impl<C: Hash, E: Hash, GC: Hash, F, GF> Hash for ManyErrors<C, E, GC, F, GF> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        core::mem::discriminant(self).hash(state);
-        match self {
-            Self::None => {}
-            Self::One(n) => n.hash(state),
-            Self::Many(v) => v.hash(state),
         }
     }
 }

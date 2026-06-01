@@ -14,6 +14,7 @@ categories = ["rust-patterns", "command-line-interface", "no-std"]
 include = ["src/**/*.rs", "examples/**/*.rs", "README.md", "CHANGELOG.md", "LICENSE*"]
 
 [dependencies]
+derive-where = "1.6.1"
 itertools = { version = "0.14", default-features = false }
 
 [dev-dependencies]

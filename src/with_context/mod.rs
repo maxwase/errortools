@@ -6,6 +6,8 @@ use core::{
     marker::PhantomData,
 };
 
+use derive_where::derive_where;
+
 use crate::Format;
 
 mod format;
@@ -33,12 +35,8 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// since the strategy already prints it), so chain-walking strategies don't
 /// duplicate it.
 ///
-/// All standard-trait impls (`Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`) are
-/// written manually — not derived — so they do **not** impose
-/// `WithContextFormat: Trait` bounds. (`Copy` cannot be derived for this: derive
-/// emits `impl<C: Copy, E: Copy, F: Copy>`, which would leak `F: Copy` and make
-/// `WithContext` `Copy` only when the phantom strategy is — so it is hand-written
-/// as `impl<C: Copy, E: Copy, F>` to match the `F`-free `Clone`.)
+/// The standard-trait impls (`Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`) bound
+/// only `C`/`E`, so they do **not** impose `WithContextFormat: Trait` bounds.
 ///
 /// # Example
 /// ```
@@ -77,12 +75,14 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// let w = WithContext::<_, _, Arrow>::new(1, "boom");
 /// assert_eq!(w.to_string(), "1 -> boom");
 /// ```
+#[derive_where(Clone, Copy, PartialEq, Eq, Hash, Debug; C, E)]
 pub struct WithContext<C, E, WithContextFormat = Colon> {
     /// The context value tagging this error (e.g. a file path or step number).
     pub context: C,
     /// The underlying error.
     pub error: E,
 
+    #[derive_where(skip(Debug))]
     _format: PhantomData<fn() -> WithContextFormat>,
 }
 
@@ -117,37 +117,6 @@ impl<C, E, WithContextFormat> From<(C, E)> for WithContext<C, E, WithContextForm
     }
 }
 
-// Manual impls so WithContextFormat does not get Trait bounds from derives.
-// The _format field is PhantomData<fn() -> WithContextFormat>, which is always
-// Clone/PartialEq/Eq/Hash/Copy — but derive adds the F: Trait bound regardless.
-
-impl<C: Clone, E: Clone, F> Clone for WithContext<C, E, F> {
-    fn clone(&self) -> Self {
-        Self {
-            context: self.context.clone(),
-            error: self.error.clone(),
-            _format: PhantomData,
-        }
-    }
-}
-
-impl<C: Copy, E: Copy, F> Copy for WithContext<C, E, F> {}
-
-impl<C: PartialEq, E: PartialEq, F> PartialEq for WithContext<C, E, F> {
-    fn eq(&self, other: &Self) -> bool {
-        self.context == other.context && self.error == other.error
-    }
-}
-
-impl<C: Eq, E: Eq, F> Eq for WithContext<C, E, F> {}
-
-impl<C: core::hash::Hash, E: core::hash::Hash, F> core::hash::Hash for WithContext<C, E, F> {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.context.hash(state);
-        self.error.hash(state);
-    }
-}
-
 /// Renders the pair via the strategy `WithContextFormat`. `C` and `E` have
 /// no `Display` bound here — the strategy decides what each must implement.
 impl<C, E, WithContextFormat> Display for WithContext<C, E, WithContextFormat>
@@ -156,16 +125,6 @@ where
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         WithContextFormat::fmt(self, f)
-    }
-}
-
-/// Forwards to the fields' `Debug` rather than printing the `PhantomData` tag.
-impl<C: Debug, E: Debug, WithContextFormat> Debug for WithContext<C, E, WithContextFormat> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WithContext")
-            .field("context", &self.context)
-            .field("error", &self.error)
-            .finish()
     }
 }
 

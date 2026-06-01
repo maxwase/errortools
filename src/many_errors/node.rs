@@ -1,11 +1,8 @@
 //! A single child of a [`ManyErrors`]: a leaf error-with-context, or a named sub-group.
 
-use core::{
-    fmt::{self, Debug},
-    hash::{Hash, Hasher},
-};
-
 use alloc::boxed::Box;
+
+use derive_where::derive_where;
 
 use crate::with_context::{Colon, ContextField, WithContext};
 
@@ -26,56 +23,14 @@ pub type Subgroup<C, E, GC, F, GF> = WithContext<GC, Box<ManyErrors<C, E, GC, F,
 ///   [`ManyErrors`], formatted by `GF` (default [`ContextField`]: label only).
 ///
 /// The group's `errors` are boxed to break the mutual recursion with
-/// [`ManyErrors`]. All standard-trait impls (`Clone`, `PartialEq`, `Eq`,
-/// `Hash`, `Debug`) are written manually — not derived — so they do **not** add
-/// `F`/`GF`: `Trait` bounds (mirroring [`WithContext`]'s `PhantomData<fn() -> F>`).
+/// [`ManyErrors`]. The standard-trait impls bound only `C`/`E`/`GC` — never the
+/// `F`/`GF` marker params (mirroring [`WithContext`]'s `PhantomData<fn() -> F>`).
+#[derive_where(Clone, PartialEq, Eq, Hash, Debug; C, E, GC)]
 pub enum Node<C, E, GC = C, F = Colon, GF = ContextField> {
     /// A leaf: one context-tagged error.
     Leaf(WithContext<C, E, F>),
     /// A named sub-group: a label paired with a boxed nested [`ManyErrors`].
     Group(Subgroup<C, E, GC, F, GF>),
-}
-
-// --- Manual trait impls (no F/GF: Trait bound) ---
-
-impl<C: Clone, E: Clone, GC: Clone, F, GF> Clone for Node<C, E, GC, F, GF> {
-    fn clone(&self) -> Self {
-        match self {
-            Node::Leaf(w) => Node::Leaf(w.clone()),
-            Node::Group(w) => Node::Group(w.clone()),
-        }
-    }
-}
-
-impl<C: PartialEq, E: PartialEq, GC: PartialEq, F, GF> PartialEq for Node<C, E, GC, F, GF> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Node::Leaf(a), Node::Leaf(b)) => a == b,
-            (Node::Group(a), Node::Group(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
-impl<C: Eq, E: Eq, GC: Eq, F, GF> Eq for Node<C, E, GC, F, GF> {}
-
-impl<C: Hash, E: Hash, GC: Hash, F, GF> Hash for Node<C, E, GC, F, GF> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        core::mem::discriminant(self).hash(state);
-        match self {
-            Node::Leaf(w) => w.hash(state),
-            Node::Group(w) => w.hash(state),
-        }
-    }
-}
-
-impl<C: Debug, E: Debug, GC: Debug, F, GF> Debug for Node<C, E, GC, F, GF> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Node::Leaf(w) => f.debug_tuple("Leaf").field(w).finish(),
-            Node::Group(w) => f.debug_tuple("Group").field(w).finish(),
-        }
-    }
 }
 
 // --- Conversions ---
