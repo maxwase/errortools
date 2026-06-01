@@ -32,13 +32,9 @@ use super::impl_aggregate_format;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Joined;
 
-impl_aggregate_format!(Joined, [+ ::core::fmt::Debug], |errors, f| draw_joined::<
-    C,
-    E,
-    GC,
-    F,
-    GF,
->(errors, f));
+impl_aggregate_format!(Joined, |errors, f| draw_joined::<C, E, GC, F, GF>(
+    errors, f
+));
 
 /// Shallow single-line strategy backing the default [`Display`] of
 /// [`ManyErrors`]: each error's own text only, **no source chains**.
@@ -52,7 +48,7 @@ impl_aggregate_format!(Joined, [+ ::core::fmt::Debug], |errors, f| draw_joined::
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Summary;
 
-impl_aggregate_format!(Summary, [], |errors, f| draw_summary::<C, E, GC, F, GF>(
+impl_aggregate_format!(Summary, |errors, f| draw_summary::<C, E, GC, F, GF>(
     errors, f
 ));
 

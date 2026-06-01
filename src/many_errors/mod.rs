@@ -5,6 +5,7 @@ use core::{
     fmt::{self, Display, Formatter},
     hash::{Hash, Hasher},
 };
+use std::fmt::Debug;
 
 use alloc::{boxed::Box, vec, vec::Vec};
 
@@ -41,7 +42,7 @@ pub use strategy::{Bullets, Joined, List, Tree};
 /// # Context bounds
 /// To put a `ManyErrors` in an [`Error`] position (e.g. as a `#[source]`, or to
 /// render it via [`Display`]/[`Formatted`](crate::Formatted)), the leaf context
-/// `C` **and** the group context `GC` must implement [`Debug`](core::fmt::Debug)
+/// `C` **and** the group context `GC` must implement [`Debug`](Debug)
 /// — not for display, but because [`Error`] requires `Debug` as a supertrait and
 /// that bound propagates through the manual `Debug` impl. A custom group-context
 /// type therefore needs a `Debug` derive even though only its [`Display`] is
@@ -70,9 +71,7 @@ pub enum ManyErrors<C, E, GC = C, F = Colon, GF = ContextField> {
 
 // Manual trait impls so F/GF get no extra Trait bounds from derives.
 
-impl<C: core::fmt::Debug, E: core::fmt::Debug, GC: core::fmt::Debug, F, GF> core::fmt::Debug
-    for ManyErrors<C, E, GC, F, GF>
-{
+impl<C: Debug, E: Debug, GC: Debug, F, GF> Debug for ManyErrors<C, E, GC, F, GF> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::None => write!(f, "None"),
@@ -230,7 +229,7 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
 /// [`bullets`](ManyErrors::bullets).
 impl<C, E, GC, F, GF> Display for ManyErrors<C, E, GC, F, GF>
 where
-    C: Display,
+    C: Display + Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,
@@ -242,8 +241,8 @@ where
 
 impl<C, E, GC, F, GF> Error for ManyErrors<C, E, GC, F, GF>
 where
-    C: Display + core::fmt::Debug,
-    GC: core::fmt::Debug,
+    C: Display + Debug,
+    GC: Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<Subgroup<C, E, GC, F, GF>>,

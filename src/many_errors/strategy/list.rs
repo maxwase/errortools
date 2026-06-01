@@ -31,13 +31,9 @@ use super::impl_aggregate_format;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct List;
 
-impl_aggregate_format!(List, [+ ::core::fmt::Debug], |errors, f| draw_list_many::<
-    C,
-    E,
-    GC,
-    F,
-    GF,
->(errors, 0, f));
+impl_aggregate_format!(List, |errors, f| draw_list_many::<C, E, GC, F, GF>(
+    errors, 0, f
+));
 
 /// Render `errors` as a numbered list at nesting `depth`.
 ///

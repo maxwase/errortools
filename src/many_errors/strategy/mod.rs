@@ -26,16 +26,13 @@ pub use tree::Tree;
 /// Emits the `Format<ManyErrors<…>>` impl and its `Format<&ManyErrors<…>>` ref
 /// trampoline for an aggregate strategy with no extra generic parameters.
 ///
-/// `[$($cbound)*]` is appended to the leaf-context bound `C: Display`: pass
-/// `[+ ::core::fmt::Debug]` for strategies whose leaves go through the
-/// chain-walking [`OneLine`](crate::OneLine) (which needs `WithContext: Error`,
-/// hence `C: Debug`), or `[]` for shallow strategies. The closure-like argument
-/// names the entry-point `draw_*` call.
+/// The closure-like argument names the entry-point `draw_*` call.
 macro_rules! impl_aggregate_format {
-    ($strategy:ident, [$($cbound:tt)*], |$errors:ident, $f:ident| $call:expr) => {
+    ($strategy:ident, |$errors:ident, $f:ident| $call:expr) => {
         impl<C, E, GC, F, GF> $crate::Format<$crate::ManyErrors<C, E, GC, F, GF>> for $strategy
         where
-            C: ::core::fmt::Display $($cbound)*,
+            // The debug bound for display is needed to satisfy the `Error` impl that is required for the top-level source-waling formatter
+            C: ::core::fmt::Display + ::core::fmt::Debug,
             E: ::core::error::Error + ::core::fmt::Display + 'static,
             F: $crate::Format<$crate::with_context::WithContext<C, E, F>>,
             GF: $crate::Format<$crate::many_errors::Subgroup<C, E, GC, F, GF>>,
@@ -50,7 +47,7 @@ macro_rules! impl_aggregate_format {
 
         impl<C, E, GC, F, GF> $crate::Format<&$crate::ManyErrors<C, E, GC, F, GF>> for $strategy
         where
-            C: ::core::fmt::Display $($cbound)*,
+            C: ::core::fmt::Display + ::core::fmt::Debug,
             E: ::core::error::Error + ::core::fmt::Display + 'static,
             F: $crate::Format<$crate::with_context::WithContext<C, E, F>>,
             GF: $crate::Format<$crate::many_errors::Subgroup<C, E, GC, F, GF>>,

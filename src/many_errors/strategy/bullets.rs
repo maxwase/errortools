@@ -31,13 +31,9 @@ use super::impl_aggregate_format;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Bullets;
 
-impl_aggregate_format!(Bullets, [+ ::core::fmt::Debug], |errors, f| draw_bullets_many::<
-    C,
-    E,
-    GC,
-    F,
-    GF,
->(errors, 0, f));
+impl_aggregate_format!(Bullets, |errors, f| draw_bullets_many::<C, E, GC, F, GF>(
+    errors, 0, f
+));
 
 /// Render `errors` as a bulleted list at nesting `depth`.
 ///
