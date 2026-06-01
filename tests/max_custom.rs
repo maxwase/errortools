@@ -69,11 +69,11 @@ impl Display for Region {
     }
 }
 
-/// Group-label strategy: prints only the label, wrapped in braces.
+/// Group-label strategy: a label-only `Format<GC>` that wraps the label in braces.
 struct GroupFmt;
-impl<GC: Display, E, WCF> Format<WithContext<GC, E, WCF>> for GroupFmt {
-    fn fmt(w: &WithContext<GC, E, WCF>, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{{{}}}", w.context)
+impl<GC: Display> Format<GC> for GroupFmt {
+    fn fmt(label: &GC, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{{{label}}}")
     }
 }
 
@@ -177,11 +177,11 @@ impl<C: Display, E: Display, WCF> Format<WithContext<C, E, WCF>> for BadInnerFmt
     }
 }
 
-/// Group strategy that leaves a trailing newline after the label.
+/// Group strategy (label-only `Format<GC>`) that leaves a trailing newline after the label.
 struct BadGroupFmt;
-impl<GC: Display, E, WCF> Format<WithContext<GC, E, WCF>> for BadGroupFmt {
-    fn fmt(w: &WithContext<GC, E, WCF>, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}]\n ", w.context)
+impl<GC: Display> Format<GC> for BadGroupFmt {
+    fn fmt(label: &GC, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "[{label}]\n ")
     }
 }
 

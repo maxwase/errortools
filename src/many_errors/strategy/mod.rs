@@ -8,9 +8,10 @@
 //! [`Display`](core::fmt::Display): own text only, no source chains.
 //!
 //! Group headers are rendered through the group's own label strategy `GF` via
-//! `write!(f, "{w}")` (default [`ContextField`](crate::with_context::ContextField):
-//! the label only); the structural ` (N errors):` / `: ` and children are added
-//! by the aggregate strategy itself.
+//! `write!(f, "{w}")` (default [`AsDisplay`](crate::AsDisplay): the label's own
+//! `Display`). `GF` is a label-only [`Format<GC>`](crate::Format); the structural
+//! ` (N errors):` / `: ` and the children are added by the aggregate strategy
+//! itself, which owns all nested layout.
 
 mod bullets;
 mod list;
@@ -35,7 +36,7 @@ macro_rules! impl_aggregate_format {
             C: ::core::fmt::Display + ::core::fmt::Debug,
             E: ::core::error::Error + ::core::fmt::Display + 'static,
             F: $crate::Format<$crate::with_context::WithContext<C, E, F>>,
-            GF: $crate::Format<$crate::many_errors::Subgroup<C, E, GC, F, GF>>,
+            GF: $crate::Format<GC>,
         {
             fn fmt(
                 $errors: &$crate::ManyErrors<C, E, GC, F, GF>,
@@ -50,7 +51,7 @@ macro_rules! impl_aggregate_format {
             C: ::core::fmt::Display + ::core::fmt::Debug,
             E: ::core::error::Error + ::core::fmt::Display + 'static,
             F: $crate::Format<$crate::with_context::WithContext<C, E, F>>,
-            GF: $crate::Format<$crate::many_errors::Subgroup<C, E, GC, F, GF>>,
+            GF: $crate::Format<GC>,
         {
             fn fmt(
                 errors: &&$crate::ManyErrors<C, E, GC, F, GF>,

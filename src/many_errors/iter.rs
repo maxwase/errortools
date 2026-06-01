@@ -3,8 +3,8 @@
 use core::ops::ControlFlow;
 
 use crate::{
-    ManyErrors,
-    with_context::{Colon, ContextField, WithContext},
+    AsDisplay, ManyErrors,
+    with_context::{Colon, WithContext},
 };
 
 use super::Node;
@@ -26,7 +26,7 @@ impl<'a, C, E, GC, F, GF> IntoIterator for &'a ManyErrors<C, E, GC, F, GF> {
 }
 
 /// Iterator over references to the direct [`Node`] children of a [`ManyErrors`].
-pub struct Iter<'a, C, E, GC = C, F = Colon, GF = ContextField>(IterInner<'a, C, E, GC, F, GF>);
+pub struct Iter<'a, C, E, GC = C, F = Colon, GF = AsDisplay>(IterInner<'a, C, E, GC, F, GF>);
 
 enum IterInner<'a, C, E, GC, F, GF> {
     Empty,
@@ -86,9 +86,7 @@ impl<'a, C, E, GC, F, GF> IntoIterator for &'a mut ManyErrors<C, E, GC, F, GF> {
 }
 
 /// Iterator over mutable references to the direct [`Node`] children of a [`ManyErrors`].
-pub struct IterMut<'a, C, E, GC = C, F = Colon, GF = ContextField>(
-    IterMutInner<'a, C, E, GC, F, GF>,
-);
+pub struct IterMut<'a, C, E, GC = C, F = Colon, GF = AsDisplay>(IterMutInner<'a, C, E, GC, F, GF>);
 
 enum IterMutInner<'a, C, E, GC, F, GF> {
     Empty,
@@ -146,7 +144,7 @@ impl<C, E, GC, F, GF> IntoIterator for ManyErrors<C, E, GC, F, GF> {
 
 /// Owning iterator over the direct [`Node`] children of a [`ManyErrors`],
 /// produced by `into_iter` (moves each child out).
-pub struct IntoIter<C, E, GC = C, F = Colon, GF = ContextField>(IntoIterInner<C, E, GC, F, GF>);
+pub struct IntoIter<C, E, GC = C, F = Colon, GF = AsDisplay>(IntoIterInner<C, E, GC, F, GF>);
 
 enum IntoIterInner<C, E, GC, F, GF> {
     Empty,

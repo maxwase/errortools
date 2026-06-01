@@ -14,7 +14,7 @@ use core::{
 
 use crate::{
     Format, OneLine,
-    many_errors::{ManyErrors, Node, Subgroup},
+    many_errors::{ManyErrors, Node},
     with_context::WithContext,
 };
 
@@ -61,7 +61,7 @@ where
     C: Display + fmt::Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
 {
     draw_one_line_many(errors, <OneLine as Format<WithContext<C, E, F>>>::fmt, f)
 }
@@ -75,7 +75,7 @@ where
     C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
 {
     draw_one_line_many(errors, |w, f| write!(f, "{w}"), f)
 }
@@ -96,7 +96,7 @@ where
     C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
     L: Fn(&WithContext<C, E, F>, &mut fmt::Formatter<'_>) -> fmt::Result + Copy,
 {
     match errors {
@@ -132,14 +132,14 @@ where
     C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
     L: Fn(&WithContext<C, E, F>, &mut fmt::Formatter<'_>) -> fmt::Result + Copy,
 {
     match node {
         Node::Leaf(w) => leaf(w, f),
         Node::Group(w) => {
             write!(f, "{w} (")?;
-            draw_one_line_many(w.error.as_ref(), leaf, f)?;
+            draw_one_line_many(w.errors.as_ref(), leaf, f)?;
             write!(f, ")")
         }
     }

@@ -20,7 +20,7 @@ use itertools::Itertools;
 use crate::{
     Format,
     connectors::{TreeConnectors, Unicode},
-    many_errors::{ManyErrors, Node, Subgroup},
+    many_errors::{ManyErrors, Node},
     with_context::WithContext,
 };
 
@@ -56,7 +56,7 @@ where
     C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
     Conn: TreeConnectors,
 {
     fn fmt(errors: &ManyErrors<C, E, GC, F, GF>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -72,7 +72,7 @@ where
     C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
     Conn: TreeConnectors,
 {
     fn fmt(errors: &&ManyErrors<C, E, GC, F, GF>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -151,7 +151,7 @@ where
     C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
     Conn: TreeConnectors,
 {
     match errors {
@@ -180,7 +180,7 @@ where
     C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
     Conn: TreeConnectors,
 {
     for (i, node) in nodes.iter().enumerate() {
@@ -210,7 +210,7 @@ where
     C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
     Conn: TreeConnectors,
 {
     match node {
@@ -218,7 +218,7 @@ where
             indented::<Conn>(f, levels, 0, w)?;
             draw_error_chain::<Conn>(w.error.source(), levels, f)
         }
-        Node::Group(w) => match w.error.as_ref() {
+        Node::Group(w) => match w.errors.as_ref() {
             ManyErrors::None => indented::<Conn>(f, levels, 0, format_args!("{w}: no errors")),
             ManyErrors::One(inner) => {
                 indented::<Conn>(f, levels, 0, format_args!("{w}: "))?;
@@ -356,16 +356,15 @@ mod tests {
         assert!(s.contains("leaf: InnerB"), "got: {s}");
     }
 
-    /// A custom `GF` is actually applied to group labels.
+    /// A custom `GF` is actually applied to group labels. `GF` is a label-only
+    /// [`Format<GC>`] — it receives the bare label and cannot reach the nested errors.
     #[test]
     fn test_tree_custom_group_format() {
-        use crate::with_context::WithContext;
-
-        // Brackets the group label, ignoring the nested errors field.
+        // Brackets the group label.
         struct Bracket;
-        impl<GC: Display, E, WCF> Format<WithContext<GC, E, WCF>> for Bracket {
-            fn fmt(w: &WithContext<GC, E, WCF>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "[{}]", w.context)
+        impl<GC: Display> Format<GC> for Bracket {
+            fn fmt(label: &GC, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "[{label}]")
             }
         }
 

@@ -13,7 +13,7 @@ use itertools::Itertools;
 
 use crate::{
     Format, OneLine,
-    many_errors::{ManyErrors, Node, Subgroup},
+    many_errors::{ManyErrors, Node},
     with_context::WithContext,
 };
 
@@ -51,7 +51,7 @@ where
     C: Display + Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
 {
     match errors {
         ManyErrors::None => write!(f, "no errors"),
@@ -87,7 +87,7 @@ where
     C: Display + Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
 {
     if with_bullet {
         let indent = iter::repeat_n("  ", depth).format("");
@@ -95,7 +95,7 @@ where
     }
     match node {
         Node::Leaf(w) => <OneLine as Format<_>>::fmt(w, f),
-        Node::Group(w) => match w.error.as_ref() {
+        Node::Group(w) => match w.errors.as_ref() {
             ManyErrors::None => write!(f, "{w}: no errors"),
             ManyErrors::One(inner) => {
                 write!(f, "{w}: ")?;

@@ -2,17 +2,16 @@
 
 use core::{
     error::Error,
-    fmt::{self, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
 };
-use std::fmt::Debug;
 
 use derive_where::derive_where;
 
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 
 use crate::{
-    Format,
-    with_context::{Colon, ContextField, WithContext},
+    AsDisplay, Format,
+    with_context::{Colon, WithContext},
 };
 
 mod iter;
@@ -36,6 +35,20 @@ pub use strategy::{Bullets, Joined, List, Tree};
 /// [`bullets`](ManyErrors::bullets), [`joined`](ManyErrors::joined), or via
 /// [`FormatError::formatted`](crate::FormatError::formatted) for full generic
 /// control (e.g. `Tree<Ascii, false>`).
+///
+/// # Customizing group rendering
+/// Two independent levers:
+/// - **Label decoration** — the group-label strategy `GF` is a label-only
+///   [`Format<GC>`](crate::Format) (default [`AsDisplay`]).
+///   Set it to wrap or restyle just the label; it composes with every built-in
+///   shape, including [`tree`](ManyErrors::tree) (the label is re-indented under
+///   the tree prefix). `GF` never sees the nested errors — laying those out is
+///   the aggregate strategy's job, so a `GF` that rendered them would
+///   double-render and break the layout.
+/// - **Whole layout** — for full control over label, separators, and nesting,
+///   implement [`Format<ManyErrors<…>>`](crate::Format) for your own marker
+///   (exactly like [`Tree`]/[`List`]) and render via
+///   [`formatted`](crate::FormatError::formatted).
 ///
 /// All standard-trait impls are written manually so they do **not** add
 /// `F: Trait` bounds (mirroring [`WithContext`]'s `PhantomData<fn() -> F>`).
@@ -61,7 +74,7 @@ pub use strategy::{Bullets, Joined, List, Tree};
 /// ```
 #[derive_where(Clone, PartialEq, Eq, Hash; C, E, GC)]
 #[derive_where(Default)]
-pub enum ManyErrors<C, E, GC = C, F = Colon, GF = ContextField> {
+pub enum ManyErrors<C, E, GC = C, F = Colon, GF = AsDisplay> {
     /// No errors recorded.
     #[derive_where(default)]
     None,
@@ -134,7 +147,7 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// assert_eq!(outer.len(), 1);
     /// ```
     pub fn push_group(&mut self, context: GC, errors: Self) {
-        self.push_node(Node::Group(WithContext::new(context, Box::new(errors))));
+        self.push_node(Node::Group(Subgroup::new(context, errors)));
     }
 
     pub(crate) fn push_node(&mut self, node: Node<C, E, GC, F, GF>) {
@@ -200,7 +213,7 @@ where
     C: Display + Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         <strategy::Summary as Format<Self>>::fmt(self, f)
@@ -213,7 +226,7 @@ where
     GC: Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
-    GF: Format<Subgroup<C, E, GC, F, GF>>,
+    GF: Format<GC>,
 {
     /// Always `None`: an aggregate of independent sibling errors has no single
     /// linear cause, so it exposes nothing through [`Error::source`]. Inspect
