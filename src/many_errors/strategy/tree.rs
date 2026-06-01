@@ -140,6 +140,18 @@ fn indented<Conn: TreeConnectors>(
     write!(Indented { inner: f, prefix }, "{content}")
 }
 
+/// Renders a group label through its label strategy `GF`, wrapped so it can be
+/// handed to [`indented`] (whose re-indentation needs a single [`Display`] value).
+/// This is the label-only path — the group's own [`Display`] would also summarize
+/// the nested errors, which the tree draws itself as branches.
+struct Label<'a, GC: ?Sized, GF>(&'a GC, PhantomData<fn() -> GF>);
+
+impl<GC: ?Sized, GF: Format<GC>> Display for Label<'_, GC, GF> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        GF::fmt(self.0, f)
+    }
+}
+
 /// Draw `errors` at the current indentation level.
 fn draw_many<Conn, C, GC, E, F, GF>(
     errors: &ManyErrors<C, E, GC, F, GF>,
@@ -218,17 +230,27 @@ where
             indented::<Conn>(f, levels, 0, w)?;
             draw_error_chain::<Conn>(w.error.source(), levels, f)
         }
-        Node::Group(w) => match w.errors.as_ref() {
-            ManyErrors::None => indented::<Conn>(f, levels, 0, format_args!("{w}: no errors")),
-            ManyErrors::One(inner) => {
-                indented::<Conn>(f, levels, 0, format_args!("{w}: "))?;
-                draw_node::<Conn, C, GC, E, F, GF>(inner, levels, f)
+        Node::Group(w) => {
+            let label = Label::<_, GF>(&w.context, PhantomData);
+            match w.errors.as_ref() {
+                ManyErrors::None => {
+                    indented::<Conn>(f, levels, 0, format_args!("{label}: no errors"))
+                }
+                ManyErrors::One(inner) => {
+                    indented::<Conn>(f, levels, 0, format_args!("{label}: "))?;
+                    draw_node::<Conn, C, GC, E, F, GF>(inner, levels, f)
+                }
+                ManyErrors::Many(nodes) => {
+                    indented::<Conn>(
+                        f,
+                        levels,
+                        0,
+                        format_args!("{label} ({} errors):", nodes.len()),
+                    )?;
+                    draw_children::<Conn, C, GC, E, F, GF>(nodes, levels, "\n", f)
+                }
             }
-            ManyErrors::Many(nodes) => {
-                indented::<Conn>(f, levels, 0, format_args!("{w} ({} errors):", nodes.len()))?;
-                draw_children::<Conn, C, GC, E, F, GF>(nodes, levels, "\n", f)
-            }
-        },
+        }
     }
 }
 

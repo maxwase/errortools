@@ -52,7 +52,75 @@ impl_aggregate_format!(Summary, |errors, f| draw_summary::<C, E, GC, F, GF>(
     errors, f
 ));
 
-/// [`Joined`] entry point: leaves walk their source chain via [`OneLine`].
+/// Shared single-line traversal, generic over the per-node renderer `node`.
+///
+/// - `None` writes `"no errors"`.
+/// - `One` renders the sole child with no header.
+/// - `Many` writes the `"N errors: "` header, then each child separated by
+///   `"; "` (a `first` flag suppresses the leading separator).
+fn draw_one_line_many<C, E, GC, F, GF, N>(
+    errors: &ManyErrors<C, E, GC, F, GF>,
+    node: N,
+    f: &mut fmt::Formatter<'_>,
+) -> fmt::Result
+where
+    N: Fn(&Node<C, E, GC, F, GF>, &mut fmt::Formatter<'_>) -> fmt::Result + Copy,
+{
+    match errors {
+        ManyErrors::None => write!(f, "no errors"),
+        ManyErrors::One(child) => node(child, f),
+        ManyErrors::Many(nodes) => {
+            write!(f, "{} errors: ", nodes.len())?;
+            let mut first = true;
+            for child in nodes {
+                if !first {
+                    write!(f, "; ")?;
+                }
+                first = false;
+                node(child, f)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// [`Summary`] entry point: render each child via its own [`Display`] — shallow,
+/// no source chains. A group child goes through
+/// [`Subgroup`](crate::Subgroup)'s own `Display` (`"{label} (…summary…)"`),
+/// the single definition of a group's summary form.
+fn draw_summary<C, E, GC, F, GF>(
+    errors: &ManyErrors<C, E, GC, F, GF>,
+    f: &mut fmt::Formatter<'_>,
+) -> fmt::Result
+where
+    C: Display + fmt::Debug,
+    E: Error + 'static,
+    F: Format<WithContext<C, E, F>>,
+    GF: Format<GC>,
+{
+    draw_one_line_many(errors, summary_node::<C, E, GC, F, GF>, f)
+}
+
+/// Shallow per-node renderer: each child via its own `Display` (the leaf's
+/// `WithContext`, or the group's [`Subgroup`](crate::Subgroup)).
+fn summary_node<C, E, GC, F, GF>(
+    node: &Node<C, E, GC, F, GF>,
+    f: &mut fmt::Formatter<'_>,
+) -> fmt::Result
+where
+    C: Display + fmt::Debug,
+    E: Error + 'static,
+    F: Format<WithContext<C, E, F>>,
+    GF: Format<GC>,
+{
+    match node {
+        Node::Leaf(w) => write!(f, "{w}"),
+        Node::Group(w) => write!(f, "{w}"),
+    }
+}
+
+/// [`Joined`] entry point: leaves walk their source chain via [`OneLine`]; groups
+/// recurse deep through the same renderer.
 fn draw_joined<C, E, GC, F, GF>(
     errors: &ManyErrors<C, E, GC, F, GF>,
     f: &mut fmt::Formatter<'_>,
@@ -63,83 +131,29 @@ where
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {
-    draw_one_line_many(errors, <OneLine as Format<WithContext<C, E, F>>>::fmt, f)
+    draw_one_line_many(errors, joined_node::<C, E, GC, F, GF>, f)
 }
 
-/// [`Summary`] entry point: leaves print their own text only.
-fn draw_summary<C, E, GC, F, GF>(
-    errors: &ManyErrors<C, E, GC, F, GF>,
-    f: &mut fmt::Formatter<'_>,
-) -> fmt::Result
-where
-    C: Display,
-    E: Error + 'static,
-    F: Format<WithContext<C, E, F>>,
-    GF: Format<GC>,
-{
-    draw_one_line_many(errors, |w, f| write!(f, "{w}"), f)
-}
-
-/// Shared single-line traversal, generic over the per-leaf renderer `leaf`.
-///
-/// - `None` writes nothing.
-/// - `None` writes `"no errors"`.
-/// - `One` delegates to [`draw_one_line_node`] with no header.
-/// - `Many` writes the `"N errors: "` header, then each child separated by
-///   `"; "` (a `first` flag suppresses the leading separator).
-fn draw_one_line_many<C, E, GC, F, GF, L>(
-    errors: &ManyErrors<C, E, GC, F, GF>,
-    leaf: L,
-    f: &mut fmt::Formatter<'_>,
-) -> fmt::Result
-where
-    C: Display,
-    E: Error + 'static,
-    F: Format<WithContext<C, E, F>>,
-    GF: Format<GC>,
-    L: Fn(&WithContext<C, E, F>, &mut fmt::Formatter<'_>) -> fmt::Result + Copy,
-{
-    match errors {
-        ManyErrors::None => write!(f, "no errors"),
-        ManyErrors::One(node) => draw_one_line_node(node, leaf, f),
-        ManyErrors::Many(nodes) => {
-            write!(f, "{} errors: ", nodes.len())?;
-            let mut first = true;
-            for node in nodes {
-                if !first {
-                    write!(f, "; ")?;
-                }
-                first = false;
-                draw_one_line_node(node, leaf, f)?;
-            }
-            Ok(())
-        }
-    }
-}
-
-/// Render a single node on the current line.
-///
-/// - `Leaf` → `leaf(w, f)`.
-/// - `Group` → `"{w} ("`, the nested aggregate via [`draw_one_line_many`], then
-///   `")"`. Parens keep depth unambiguous, and an empty group falls out as
-///   `"{w} (no errors)"` with no special case.
-fn draw_one_line_node<C, E, GC, F, GF, L>(
+/// Deep per-node renderer: a leaf walks its source chain via [`OneLine`]; a group
+/// is `"{label} ("`, the nested aggregate via [`draw_one_line_many`] (recursing
+/// through this same renderer), then `")"`. An empty group falls out as
+/// `"{label} (no errors)"` with no special case.
+fn joined_node<C, E, GC, F, GF>(
     node: &Node<C, E, GC, F, GF>,
-    leaf: L,
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    C: Display,
+    C: Display + fmt::Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
-    L: Fn(&WithContext<C, E, F>, &mut fmt::Formatter<'_>) -> fmt::Result + Copy,
 {
     match node {
-        Node::Leaf(w) => leaf(w, f),
+        Node::Leaf(w) => <OneLine as Format<WithContext<C, E, F>>>::fmt(w, f),
         Node::Group(w) => {
-            write!(f, "{w} (")?;
-            draw_one_line_many(w.errors.as_ref(), leaf, f)?;
+            GF::fmt(&w.context, f)?;
+            write!(f, " (")?;
+            draw_one_line_many(w.errors.as_ref(), joined_node::<C, E, GC, F, GF>, f)?;
             write!(f, ")")
         }
     }

@@ -96,13 +96,18 @@ where
     match node {
         Node::Leaf(w) => <OneLine as Format<_>>::fmt(w, f),
         Node::Group(w) => match w.errors.as_ref() {
-            ManyErrors::None => write!(f, "{w}: no errors"),
+            ManyErrors::None => {
+                GF::fmt(&w.context, f)?;
+                write!(f, ": no errors")
+            }
             ManyErrors::One(inner) => {
-                write!(f, "{w}: ")?;
+                GF::fmt(&w.context, f)?;
+                write!(f, ": ")?;
                 draw_bullets_node::<C, E, GC, F, GF>(inner, depth, false, f)
             }
             ManyErrors::Many(nodes) => {
-                write!(f, "{w} ({} errors):", nodes.len())?;
+                GF::fmt(&w.context, f)?;
+                write!(f, " ({} errors):", nodes.len())?;
                 for node in nodes {
                     draw_bullets_node::<C, E, GC, F, GF>(node, depth + 1, true, f)?;
                 }

@@ -1,7 +1,8 @@
 //! A single child of a [`ManyErrors`]: a leaf error-with-context, or a named sub-group.
 
 use core::{
-    fmt::{self, Display, Formatter},
+    error::Error,
+    fmt::{self, Debug, Display, Formatter},
     marker::PhantomData,
 };
 
@@ -17,12 +18,14 @@ use super::ManyErrors;
 /// The payload of a [`Node::Group`]: a label `GroupContext` paired with the boxed nested
 /// [`ManyErrors`].
 ///
-/// [`Display`] renders the **label only**, through the label strategy `GroupFormat`
-/// (default [`AsDisplay`]: the label's own `Display`). The nested `errors` are
-/// *not* rendered here — the active aggregate strategy ([`Tree`](crate::Tree) /
-/// [`List`](crate::List) / …) owns their structural layout. That is why `GroupFormat` is
-/// bound [`Format<GroupContext>`](Format) and never sees `errors`: a label formatter that
-/// also rendered the children would double-render (and shatter) tree/list output.
+/// [`Display`] renders the group standalone as `"{label} (summary)"`: the label via
+/// the label strategy `GroupFormat` (default [`AsDisplay`]: the label's own `Display`),
+/// then a shallow one-line summary of the nested errors — the same shape the parent
+/// [`ManyErrors`] uses for a group. Inside an aggregate strategy ([`Tree`](crate::Tree) /
+/// [`List`](crate::List) / …) only the label is taken from `GroupFormat`; the strategy
+/// owns the nested layout itself, so this `Display` is never used there. That split is
+/// why `GroupFormat` is bound label-only [`Format<GroupContext>`](Format) and never sees
+/// `errors`: a label formatter that rendered the children would double-render under a strategy.
 #[derive_where(Clone, PartialEq, Eq, Hash, Debug; C, E, GroupContext)]
 pub struct Subgroup<C, E, GroupContext = C, F = Colon, GroupFormat = AsDisplay> {
     /// The group label.
@@ -51,14 +54,22 @@ impl<C, E, GroupContext, F, GroupFormat> Subgroup<C, E, GroupContext, F, GroupFo
     }
 }
 
-/// Renders the **label only**, via the label strategy `GroupFormat`. The nested errors
-/// are laid out by the active aggregate strategy, not here.
+/// Standalone group rendering: label via `GroupFormat`, then the nested errors as a
+/// shallow one-line summary in parens (`"{label} (…)"`) — matching how the parent
+/// [`ManyErrors`] renders a group. Aggregate strategies don't use this; they take the
+/// label from `GroupFormat` directly and lay out the children themselves.
 impl<C, E, GroupContext, F, GroupFormat> Display for Subgroup<C, E, GroupContext, F, GroupFormat>
 where
+    C: Display + Debug,
+    E: Error + 'static,
+    F: Format<WithContext<C, E, F>>,
     GroupFormat: Format<GroupContext>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        GroupFormat::fmt(&self.context, f)
+        GroupFormat::fmt(&self.context, f)?;
+        write!(f, " (")?;
+        Display::fmt(&*self.errors, f)?;
+        write!(f, ")")
     }
 }
 
@@ -116,9 +127,9 @@ impl<C, E, GroupContext, F, GroupFormat> Node<C, E, GroupContext, F, GroupFormat
         }
     }
 
-    /// Returns the group's labeled [`WithContext`], or `None` for a leaf.
+    /// Returns the group's [`Subgroup`], or `None` for a leaf.
     ///
-    /// The label is `&self.context`; the nested errors are `&*self.error`.
+    /// The label is `&self.context`; the nested errors are `&self.errors`.
     pub fn as_group(&self) -> Option<&Subgroup<C, E, GroupContext, F, GroupFormat>> {
         match self {
             Node::Group(w) => Some(w),
@@ -184,5 +195,19 @@ mod tests {
         let s = format!("{node:?}");
         assert!(s.contains("Group"));
         assert!(s.contains("grp"));
+    }
+
+    /// A [`Subgroup`] extracted from the enum renders losslessly: label **and** a
+    /// shallow summary of the nested errors, matching the parent's group rendering.
+    #[test]
+    fn test_group_display_is_lossless() {
+        let mut inner = ManyErrors::<&str, Inner>::new();
+        inner.push("x", Inner::A);
+        inner.push("y", Inner::B);
+        let mut outer = ManyErrors::<&str, Inner>::new();
+        outer.push_group("region", inner);
+
+        let group = outer.iter().next().unwrap().as_group().unwrap();
+        assert_eq!(group.to_string(), "region (2 errors: x: InnerA; y: InnerB)");
     }
 }
