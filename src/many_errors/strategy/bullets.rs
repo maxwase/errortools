@@ -1,25 +1,17 @@
-//! [`Bullets`]: render a [`ManyErrors`] as a bulleted (`•`) list.
+//! [`Bullets`]: render a [`ManyErrors`](crate::ManyErrors) as a bulleted (`•`) list.
 //!
-//! `depth: usize` carries the nesting level; the visual indent is reconstructed
-//! lazily with `repeat_n("  ", depth).format("")` — no `String` allocation.
+//! The traversal lives in [`super::marked`]; `Bullets` only contributes the
+//! `"• "` row marker and its indent offsets.
 
-use core::{
-    error::Error,
-    fmt::{self, Debug, Display},
-    iter,
-};
+use core::fmt;
 
-use itertools::Itertools;
+use crate::indent::Repeat;
 
-use crate::{
-    Format, OneLine,
-    many_errors::{ManyErrors, Node},
-    with_context::WithContext,
-};
+use super::marked::{Marker, draw_marked_many};
+use super::{impl_aggregate_format, impl_ref_format};
 
-use super::impl_aggregate_format;
-
-/// Aggregate strategy that renders a [`ManyErrors`] as a bulleted (`•`) list.
+/// Aggregate strategy that renders a [`ManyErrors`](crate::ManyErrors) as a
+/// bulleted (`•`) list.
 ///
 /// # Output example
 /// ```text
@@ -31,91 +23,21 @@ use super::impl_aggregate_format;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Bullets;
 
-impl_aggregate_format!(Bullets, |errors, f| draw_bullets_many::<C, E, GC, F, GF>(
-    errors, 0, f
-));
+/// Bulleted rows: top-level rows indent one unit; a group's rows sit at the
+/// group's content column (right under its label).
+impl Marker for Bullets {
+    const TOP_ROW: usize = 1;
+    const GROUP_ROW_OFFSET: usize = 0;
 
-/// Render `errors` as a bulleted list at nesting `depth`.
-///
-/// - `None` writes `"no errors"`.
-/// - `One` delegates to [`draw_bullets_node`] with `with_bullet = false`: a lone
-///   error is printed flush, without a leading `•`.
-/// - `Many` writes the `"N errors:"` header, then recurses into each child at
-///   `depth + 1` with `with_bullet = true` so every child gets its own bullet.
-fn draw_bullets_many<C, E, GC, F, GF>(
-    errors: &ManyErrors<C, E, GC, F, GF>,
-    depth: usize,
-    f: &mut fmt::Formatter<'_>,
-) -> fmt::Result
-where
-    C: Display + Debug,
-    E: Error + 'static,
-    F: Format<WithContext<C, E, F>>,
-    GF: Format<GC>,
-{
-    match errors {
-        ManyErrors::None => write!(f, "no errors"),
-        ManyErrors::One(node) => draw_bullets_node::<C, E, GC, F, GF>(node, depth, false, f),
-        ManyErrors::Many(nodes) => {
-            write!(f, "{} errors:", nodes.len())?;
-            for node in nodes {
-                draw_bullets_node::<C, E, GC, F, GF>(node, depth + 1, true, f)?;
-            }
-            Ok(())
-        }
+    fn write_marker(f: &mut fmt::Formatter<'_>, indent: usize, _index: usize) -> fmt::Result {
+        write!(f, "\n{}• ", Repeat("  ", indent))
     }
 }
 
-/// Render a single node, optionally prefixed with its own bullet.
-///
-/// When `with_bullet` is set, first writes `"\n{indent}• "` where `indent` is
-/// `depth` copies of `"  "` (lazy `repeat_n`, no allocation). Then:
-/// - `Leaf` → the whole pair on one line via the [`OneLine`] strategy (`{w}` plus
-///   its `": "`-joined source chain);
-/// - `Group` empty → `"{w}: no errors"`;
-/// - `Group` single child → `"{w}: "` then recurse at the same `depth` with
-///   `with_bullet = false`, so the child sits inline after the label;
-/// - `Group` many children → `"{w} (N errors):"` header, then each child
-///   recurses at `depth + 1` with its own bullet.
-fn draw_bullets_node<C, E, GC, F, GF>(
-    node: &Node<C, E, GC, F, GF>,
-    depth: usize,
-    with_bullet: bool,
-    f: &mut fmt::Formatter<'_>,
-) -> fmt::Result
-where
-    C: Display + Debug,
-    E: Error + 'static,
-    F: Format<WithContext<C, E, F>>,
-    GF: Format<GC>,
-{
-    if with_bullet {
-        let indent = iter::repeat_n("  ", depth).format("");
-        write!(f, "\n{indent}• ")?;
-    }
-    match node {
-        Node::Leaf(w) => <OneLine as Format<_>>::fmt(w, f),
-        Node::Group(w) => match w.errors.as_ref() {
-            ManyErrors::None => {
-                GF::fmt(&w.context, f)?;
-                write!(f, ": no errors")
-            }
-            ManyErrors::One(inner) => {
-                GF::fmt(&w.context, f)?;
-                write!(f, ": ")?;
-                draw_bullets_node::<C, E, GC, F, GF>(inner, depth, false, f)
-            }
-            ManyErrors::Many(nodes) => {
-                GF::fmt(&w.context, f)?;
-                write!(f, " ({} errors):", nodes.len())?;
-                for node in nodes {
-                    draw_bullets_node::<C, E, GC, F, GF>(node, depth + 1, true, f)?;
-                }
-                Ok(())
-            }
-        },
-    }
-}
+impl_aggregate_format!(
+    Bullets,
+    |errors, f| draw_marked_many::<Self, C, E, GC, F, GF>(errors, f)
+);
 
 #[cfg(test)]
 mod tests {

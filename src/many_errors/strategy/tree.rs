@@ -24,6 +24,8 @@ use crate::{
     with_context::WithContext,
 };
 
+use super::{ErrorCount, Label, NO_ERRORS, impl_ref_format};
+
 /// Aggregate strategy that renders a [`ManyErrors`] as a branching tree.
 ///
 /// Generic parameters:
@@ -53,7 +55,6 @@ impl<Conn: fmt::Debug + Default, const HEADER: bool> fmt::Debug for Tree<Conn, H
 impl<C, GC, E, F, GF, Conn, const HEADER: bool> Format<ManyErrors<C, E, GC, F, GF>>
     for Tree<Conn, HEADER>
 where
-    C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
@@ -66,19 +67,7 @@ where
     }
 }
 
-impl<C, GC, E, F, GF, Conn, const HEADER: bool> Format<&ManyErrors<C, E, GC, F, GF>>
-    for Tree<Conn, HEADER>
-where
-    C: Display,
-    E: Error + 'static,
-    F: Format<WithContext<C, E, F>>,
-    GF: Format<GC>,
-    Conn: TreeConnectors,
-{
-    fn fmt(errors: &&ManyErrors<C, E, GC, F, GF>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        <Self as Format<ManyErrors<C, E, GC, F, GF>>>::fmt(errors, f)
-    }
-}
+impl_ref_format!(Tree<Conn, HEADER>, Conn, const HEADER: bool);
 
 /// Lazily renders an ancestry prefix: one `VERT`/`GAP` per `levels` entry (a
 /// bar for ancestors with siblings below, blank otherwise), then `extra`
@@ -101,28 +90,6 @@ impl<Conn: TreeConnectors> Display for Pad<'_, Conn> {
     }
 }
 
-/// A [`fmt::Write`] adapter that re-emits `prefix` after every newline, so a
-/// node whose rendered content spans multiple physical lines keeps the tree
-/// indent instead of spilling flush-left. Streams line-by-line — no allocation.
-struct Indented<'a, 'b, P: Display> {
-    inner: &'a mut fmt::Formatter<'b>,
-    prefix: P,
-}
-
-impl<P: Display> fmt::Write for Indented<'_, '_, P> {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        let mut lines = s.split('\n');
-        if let Some(first) = lines.next() {
-            self.inner.write_str(first)?;
-        }
-        for line in lines {
-            write!(self.inner, "\n{}", self.prefix)?;
-            self.inner.write_str(line)?;
-        }
-        Ok(())
-    }
-}
-
 /// Writes `content` to `f`, re-indenting any embedded newlines to the prefix
 /// `Pad { levels, extra }` so multi-line content stays under the tree.
 fn indented<Conn: TreeConnectors>(
@@ -131,25 +98,12 @@ fn indented<Conn: TreeConnectors>(
     extra: usize,
     content: impl Display,
 ) -> fmt::Result {
-    use fmt::Write as _;
     let prefix = Pad::<Conn> {
         levels,
         extra,
         _conn: PhantomData,
     };
-    write!(Indented { inner: f, prefix }, "{content}")
-}
-
-/// Renders a group label through its label strategy `GF`, wrapped so it can be
-/// handed to [`indented`] (whose re-indentation needs a single [`Display`] value).
-/// This is the label-only path — the group's own [`Display`] would also summarize
-/// the nested errors, which the tree draws itself as branches.
-struct Label<'a, GC: ?Sized, GF>(&'a GC, PhantomData<fn() -> GF>);
-
-impl<GC: ?Sized, GF: Format<GC>> Display for Label<'_, GC, GF> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        GF::fmt(self.0, f)
-    }
+    crate::indent::indented(f, prefix, content)
 }
 
 /// Draw `errors` at the current indentation level.
@@ -160,18 +114,17 @@ fn draw_many<Conn, C, GC, E, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
     Conn: TreeConnectors,
 {
     match errors {
-        ManyErrors::None => write!(f, "no errors"),
+        ManyErrors::None => f.write_str(NO_ERRORS),
         ManyErrors::One(node) => draw_node::<Conn, C, GC, E, F, GF>(node, levels, f),
         ManyErrors::Many(nodes) => {
             let pre_first = if show_header {
-                write!(f, "{} errors:", nodes.len())?;
+                write!(f, "{}:", ErrorCount(nodes.len()))?;
                 "\n"
             } else {
                 ""
@@ -189,7 +142,6 @@ fn draw_children<Conn, C, GC, E, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
@@ -219,7 +171,6 @@ fn draw_node<Conn, C, GC, E, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    C: Display,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
@@ -234,7 +185,7 @@ where
             let label = Label::<_, GF>(&w.context, PhantomData);
             match w.errors.as_ref() {
                 ManyErrors::None => {
-                    indented::<Conn>(f, levels, 0, format_args!("{label}: no errors"))
+                    indented::<Conn>(f, levels, 0, format_args!("{label}: {NO_ERRORS}"))
                 }
                 ManyErrors::One(inner) => {
                     indented::<Conn>(f, levels, 0, format_args!("{label}: "))?;
@@ -245,7 +196,7 @@ where
                         f,
                         levels,
                         0,
-                        format_args!("{label} ({} errors):", nodes.len()),
+                        format_args!("{label} ({}):", ErrorCount(nodes.len())),
                     )?;
                     draw_children::<Conn, C, GC, E, F, GF>(nodes, levels, "\n", f)
                 }
@@ -260,9 +211,10 @@ fn draw_error_chain<Conn: TreeConnectors>(
     levels: &[bool],
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result {
-    let mut opt_src = source;
-    let mut depth = 0usize;
-    while let Some(src) = opt_src {
+    let Some(first) = source else {
+        return Ok(());
+    };
+    for (depth, src) in crate::chain(first).enumerate() {
         let pad = Pad::<Conn> {
             levels,
             extra: depth,
@@ -272,8 +224,6 @@ fn draw_error_chain<Conn: TreeConnectors>(
         // Source content aligns one connector-width past `pad`; re-indent any
         // embedded newlines to that column.
         indented::<Conn>(f, levels, depth + 1, src)?;
-        depth += 1;
-        opt_src = src.source();
     }
     Ok(())
 }

@@ -16,6 +16,7 @@ use derive_where::derive_where;
 mod add;
 mod chain;
 mod connectors;
+mod indent;
 mod main_result;
 #[cfg(feature = "alloc")]
 pub mod many_errors;
@@ -124,6 +125,11 @@ pub trait FormatError {
     }
 
     /// Formats the error using a custom [`Format`] strategy.
+    ///
+    /// Available on any [`Error`] via the blanket impl. Types that should
+    /// render even when they don't implement `Error` provide an unbounded
+    /// inherent twin that shadows this method and returns the same wrapper —
+    /// see [`ManyErrors::formatted`](crate::ManyErrors::formatted).
     fn formatted<F>(&self) -> Formatted<&Self, F> {
         Formatted::new(self)
     }
@@ -146,11 +152,12 @@ impl<E, F> Formatted<E, F> {
     }
 }
 
-/// Renders the wrapped error via the strategy `F`.
-/// These genetic bounds actually define whether a strategy can be used to format a given error type
-/// Any error type can be put into a strategy, but not every can actually be formatted.
-/// That's why it's possible to construct, but get a compiler error when trying to call [`fmt::Display`] on the combination.
-impl<E: Error, F: Format<E>> fmt::Display for Formatted<E, F> {
+/// Renders the wrapped value via the strategy `F`.
+/// The only requirement is `F: Format<E>` — each strategy's own impl bounds
+/// decide whether a given value can actually be formatted (e.g. [`OneLine`]
+/// requires `E: Error`). Any value can be wrapped, but an incompatible
+/// combination surfaces as a compile error at the [`fmt::Display`] call site.
+impl<E, F: Format<E>> fmt::Display for Formatted<E, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         F::fmt(&self.0, f)
     }

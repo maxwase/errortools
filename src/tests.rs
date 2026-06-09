@@ -181,6 +181,17 @@ fn test_dyn_error() {
     assert_eq!(send_sync.one_line().to_string(), "Two: InnerA");
 }
 
+/// `Formatted`'s `Display` requires only `F: Format<E>` — non-error values
+/// render fine through a compatible strategy.
+#[test]
+fn test_formatted_non_error_value() {
+    assert_eq!(
+        Formatted::<_, AsDisplay>::new("plain text").to_string(),
+        "plain text"
+    );
+    assert_eq!(Formatted::<_, AsDisplay>::new(42).to_string(), "42");
+}
+
 #[test]
 fn test_custom_format() {
     assert_eq!(Error::Two(Inner::A).formatted::<Upper>().to_string(), "TWO");

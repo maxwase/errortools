@@ -3,27 +3,30 @@
 //!
 //! Both share one traversal ([`draw_one_line_many`]) parameterized by a leaf
 //! renderer, so they differ in exactly one place: how a leaf is printed.
-//! `Joined` routes leaves through the chain-walking [`OneLine`] (needs
-//! `C: Debug`, via `WithContext: Error`); `Summary` prints the leaf's own text
-//! `{w}` only (no `Debug`, keeping `ManyErrors: Display` at `C: Display`).
+//! `Joined` walks each leaf's source chain via [`LeafChain`]; `Summary` prints
+//! the leaf's own text `{w}` only. Neither bounds the context `C` at all —
+//! leaves render through `F`, labels through `GF`.
 
-use core::{
-    error::Error,
-    fmt::{self, Display},
-};
+use core::{error::Error, fmt};
 
 use crate::{
-    Format, OneLine,
+    Format,
     many_errors::{ManyErrors, Node},
     with_context::WithContext,
 };
 
-use super::impl_aggregate_format;
+use super::{ErrorCount, LeafChain, NO_ERRORS, impl_aggregate_format, impl_ref_format};
 
 /// Aggregate strategy that renders a [`ManyErrors`] on a single line, walking
-/// each leaf's source chain via the per-error [`OneLine`] strategy.
+/// each leaf's source chain (joined with `": "`, like the per-error
+/// [`OneLine`](crate::OneLine) strategy).
 ///
 /// Siblings are separated by `"; "`, nested groups wrapped in parens.
+///
+/// Single-line is a layout intent, not a sanitization guarantee: control
+/// characters (`\n`, `\t`, …) embedded in messages or strategies pass through
+/// verbatim. For layouts that re-indent embedded newlines use
+/// [`Tree`](super::Tree) / [`List`](super::List) / [`Bullets`](super::Bullets).
 ///
 /// # Output example
 /// ```text
@@ -40,6 +43,8 @@ impl_aggregate_format!(Joined, |errors, f| draw_joined::<C, E, GC, F, GF>(
 /// [`ManyErrors`]: each error's own text only, **no source chains**.
 ///
 /// Siblings are separated by `"; "`, nested groups wrapped in parens.
+/// Control characters embedded in messages pass through verbatim (same
+/// passthrough policy as [`Joined`]).
 ///
 /// # Output example
 /// ```text
@@ -67,10 +72,10 @@ where
     N: Fn(&Node<C, E, GC, F, GF>, &mut fmt::Formatter<'_>) -> fmt::Result + Copy,
 {
     match errors {
-        ManyErrors::None => write!(f, "no errors"),
+        ManyErrors::None => f.write_str(NO_ERRORS),
         ManyErrors::One(child) => node(child, f),
         ManyErrors::Many(nodes) => {
-            write!(f, "{} errors: ", nodes.len())?;
+            write!(f, "{}: ", ErrorCount(nodes.len()))?;
             let mut first = true;
             for child in nodes {
                 if !first {
@@ -93,7 +98,6 @@ fn draw_summary<C, E, GC, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    C: Display + fmt::Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
@@ -108,7 +112,6 @@ fn summary_node<C, E, GC, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    C: Display + fmt::Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
@@ -126,7 +129,6 @@ fn draw_joined<C, E, GC, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    C: Display + fmt::Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
@@ -134,7 +136,7 @@ where
     draw_one_line_many(errors, joined_node::<C, E, GC, F, GF>, f)
 }
 
-/// Deep per-node renderer: a leaf walks its source chain via [`OneLine`]; a group
+/// Deep per-node renderer: a leaf walks its source chain via [`LeafChain`]; a group
 /// is `"{label} ("`, the nested aggregate via [`draw_one_line_many`] (recursing
 /// through this same renderer), then `")"`. An empty group falls out as
 /// `"{label} (no errors)"` with no special case.
@@ -143,13 +145,12 @@ fn joined_node<C, E, GC, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    C: Display + fmt::Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {
     match node {
-        Node::Leaf(w) => <OneLine as Format<WithContext<C, E, F>>>::fmt(w, f),
+        Node::Leaf(w) => write!(f, "{}", LeafChain(w)),
         Node::Group(w) => {
             GF::fmt(&w.context, f)?;
             write!(f, " (")?;

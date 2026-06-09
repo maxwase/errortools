@@ -177,6 +177,17 @@ impl<C, E, GC, F, GF> Iterator for IntoIter<C, E, GC, F, GF> {
 
 // --- FromIterator / Extend ---
 
+/// Builds an aggregate from arbitrary children — leaves *and* groups — so a
+/// whole tree can be collected iteratively (unlike the leaf-only
+/// `WithContext`/`(C, E)` impls).
+impl<C, E, GC, F, GF> FromIterator<Node<C, E, GC, F, GF>> for ManyErrors<C, E, GC, F, GF> {
+    fn from_iter<I: IntoIterator<Item = Node<C, E, GC, F, GF>>>(iter: I) -> Self {
+        let mut me = Self::None;
+        me.extend(iter);
+        me
+    }
+}
+
 impl<C, E, GC, F, GF> FromIterator<WithContext<C, E, F>> for ManyErrors<C, E, GC, F, GF> {
     fn from_iter<I: IntoIterator<Item = WithContext<C, E, F>>>(iter: I) -> Self {
         let mut me = Self::None;
@@ -215,6 +226,15 @@ impl<C, E, GC, F, GF> FromIterator<ControlFlow<(C, E), (C, E)>> for ManyErrors<C
 }
 
 // --- Extend ---
+
+/// Appends arbitrary children — leaves *and* groups.
+impl<C, E, GC, F, GF> Extend<Node<C, E, GC, F, GF>> for ManyErrors<C, E, GC, F, GF> {
+    fn extend<I: IntoIterator<Item = Node<C, E, GC, F, GF>>>(&mut self, iter: I) {
+        for node in iter {
+            self.push_node(node);
+        }
+    }
+}
 
 impl<C, E, GC, F, GF> Extend<WithContext<C, E, F>> for ManyErrors<C, E, GC, F, GF> {
     fn extend<I: IntoIterator<Item = WithContext<C, E, F>>>(&mut self, iter: I) {
@@ -350,6 +370,46 @@ mod tests {
         ];
         let errs: ManyErrors<&str, Inner> = items.into_iter().collect();
         assert_eq!(errs.len(), 2);
+    }
+
+    /// Groups can be built iteratively: `Node` items (leaves and subgroups)
+    /// collect into a whole tree.
+    #[test]
+    fn test_collect_from_nodes_including_groups() {
+        use crate::many_errors::Subgroup;
+
+        let mut inner = ManyErrors::<&str, Inner>::new();
+        inner.push("x", Inner::A);
+
+        let nodes: alloc::vec::Vec<Node<&str, Inner>> = alloc::vec![
+            Node::from(("leaf", Inner::B)),
+            Subgroup::new("region", inner).into(),
+        ];
+        let errs: ManyErrors<&str, Inner> = nodes.into_iter().collect();
+        assert_eq!(errs.len(), 2);
+        assert_eq!(
+            errs.to_string(),
+            "2 errors: leaf: InnerB; region (x: InnerA)"
+        );
+    }
+
+    #[test]
+    fn test_extend_from_nodes() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.extend([Node::from(("a", Inner::A)), Node::from(("b", Inner::B))]);
+        assert_eq!(e.len(), 2);
+    }
+
+    /// `push_node` is public and accepts anything `Into<Node>`.
+    #[test]
+    fn test_push_node_accepts_into_node() {
+        use crate::many_errors::Subgroup;
+
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push_node(("tuple", Inner::A));
+        e.push_node(WithContext::new("pair", Inner::B));
+        e.push_node(Subgroup::new("group", ManyErrors::new()));
+        assert_eq!(e.len(), 3);
     }
 
     #[test]

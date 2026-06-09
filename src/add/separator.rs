@@ -52,17 +52,21 @@ impl<E: ?Sized> Format<E> for Empty {
 /// [`Format`] strategy that writes a colon (`":"`) and ignores the input.
 ///
 /// Pair with [`Space`] via [`ColonSpace`] for the common `": "` separator.
+///
+/// Named `ColonChar` (not `Colon`) to avoid colliding with the
+/// [`Colon`](crate::with_context::Colon) *pair* strategy — a misimport between
+/// the two would compile but render each leaf as a bare `":"`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Colon;
+pub struct ColonChar;
 
-impl<E: ?Sized> Format<E> for Colon {
+impl<E: ?Sized> Format<E> for ColonChar {
     fn fmt(_: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(":")
     }
 }
 
-/// Convenience alias for `Add<Colon, Space>` — writes `": "`.
-pub type ColonSpace = Add<Colon, Space>;
+/// Convenience alias for `Add<ColonChar, Space>` — writes `": "`.
+pub type ColonSpace = Add<ColonChar, Space>;
 
 /// [`Add`] with an explicit separator slot: writes `L`, then `Sep`, then `R`.
 ///
@@ -143,7 +147,7 @@ mod tests {
     fn test_add_sep_generic_alias() {
         let error = Error::One;
         assert_eq!(
-            Formatted::<_, WithSep<OneLine, Colon, OneLine>>::new(error).to_string(),
+            Formatted::<_, WithSep<OneLine, ColonChar, OneLine>>::new(error).to_string(),
             "One:One"
         );
     }

@@ -10,14 +10,14 @@
 //!    └─ source 2
 //! ```
 
-use core::{error::Error, fmt, iter, marker::PhantomData};
+use core::{error::Error, fmt, marker::PhantomData};
 
 use derive_where::derive_where;
-use itertools::Itertools;
 
 use crate::{
     Format, chain,
     connectors::{Connectors, Unicode},
+    indent::{Repeat, indented},
 };
 
 /// Per-error source-chain ladder format, drawn with a [`Connectors`] glyph set.
@@ -37,26 +37,34 @@ use crate::{
 ///
 /// Use [`FormatError::chain`](crate::FormatError::chain) for the most common case.
 /// For aggregate many-error rendering see [`Tree`](crate::many_errors::Tree).
+///
+/// An aggregate ([`ManyErrors`](crate::ManyErrors)) buried in the source chain
+/// renders as one shallow summary line and stops the walk (its `source()` is
+/// `None`, and branching can't be recovered through `dyn Error`) — lift it
+/// into a `push_group` of an outer aggregate for deep rendering.
 #[derive_where(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Chain<C = Unicode>(PhantomData<fn() -> C>);
 
 /// Walks the source chain. Prints the top error on its own line, then each
 /// source on a new line preceded by `(depth - 1)` repetitions of
 /// [`Connectors::GAP`] followed by [`Connectors::LAST`].
+///
+/// A source whose message embeds `\n` is re-indented: continuation lines carry
+/// `depth` repetitions of [`Connectors::GAP`], keeping them under the ladder
+/// instead of spilling flush-left.
 impl<E: Error + ?Sized, C: Connectors> Format<E> for Chain<C> {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // &error: &&E; &&E coerces to &dyn Error via the blanket `impl<T: Error + ?Sized> Error for &T`.
-        let formatted =
-            chain(&error)
-                .enumerate()
-                .format_with("\n", |(depth, e), write| match depth {
-                    0 => write(&format_args!("{e}")),
-                    n => {
-                        let pad = iter::repeat_n(C::GAP, n - 1).format("");
-                        write(&format_args!("{pad}{}{e}", C::LAST))
-                    }
-                });
-        write!(f, "{formatted}")
+        for (depth, e) in chain(&error).enumerate() {
+            match depth {
+                0 => write!(f, "{e}")?,
+                n => {
+                    write!(f, "\n{}{}", Repeat(C::GAP, n - 1), C::LAST)?;
+                    indented(f, Repeat(C::GAP, n), e)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 

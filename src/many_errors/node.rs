@@ -2,7 +2,7 @@
 
 use core::{
     error::Error,
-    fmt::{self, Debug, Display, Formatter},
+    fmt::{self, Display, Formatter},
     marker::PhantomData,
 };
 
@@ -52,6 +52,21 @@ impl<C, E, GroupContext, F, GroupFormat> Subgroup<C, E, GroupContext, F, GroupFo
             _label: PhantomData,
         }
     }
+
+    /// Switches the leaf and group-label strategies without touching the
+    /// stored values, rebuilding the nested tree recursively (O(n), one new
+    /// box per group).
+    pub fn with_formats<NewF, NewGF>(self) -> Subgroup<C, E, GroupContext, NewF, NewGF>
+    where
+        NewF: Format<WithContext<C, E, NewF>>,
+        NewGF: Format<GroupContext>,
+    {
+        Subgroup {
+            context: self.context,
+            errors: Box::new(self.errors.with_formats()),
+            _label: PhantomData,
+        }
+    }
 }
 
 /// Standalone group rendering: label via `GroupFormat`, then the nested errors as a
@@ -60,7 +75,6 @@ impl<C, E, GroupContext, F, GroupFormat> Subgroup<C, E, GroupContext, F, GroupFo
 /// label from `GroupFormat` directly and lay out the children themselves.
 impl<C, E, GroupContext, F, GroupFormat> Display for Subgroup<C, E, GroupContext, F, GroupFormat>
 where
-    C: Display + Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GroupFormat: Format<GroupContext>,
@@ -70,6 +84,22 @@ where
         write!(f, " (")?;
         Display::fmt(&*self.errors, f)?;
         write!(f, ")")
+    }
+}
+
+impl<C, E, GroupContext, F, GroupFormat> Error for Subgroup<C, E, GroupContext, F, GroupFormat>
+where
+    C: fmt::Debug,
+    GroupContext: fmt::Debug,
+    E: Error + 'static,
+    F: Format<WithContext<C, E, F>>,
+    GroupFormat: Format<GroupContext>,
+{
+    /// Always `None`: an aggregate of independent sibling errors has no single
+    /// linear cause (matching [`ManyErrors`]). Inspect `errors` directly, or
+    /// render the full chains via an aggregate strategy.
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
     }
 }
 
@@ -111,6 +141,14 @@ impl<C, E, GroupContext, F, GroupFormat> From<(C, E)> for Node<C, E, GroupContex
     }
 }
 
+impl<C, E, GroupContext, F, GroupFormat> From<Subgroup<C, E, GroupContext, F, GroupFormat>>
+    for Node<C, E, GroupContext, F, GroupFormat>
+{
+    fn from(group: Subgroup<C, E, GroupContext, F, GroupFormat>) -> Self {
+        Node::Group(group)
+    }
+}
+
 // --- Methods ---
 
 impl<C, E, GroupContext, F, GroupFormat> Node<C, E, GroupContext, F, GroupFormat> {
@@ -134,6 +172,58 @@ impl<C, E, GroupContext, F, GroupFormat> Node<C, E, GroupContext, F, GroupFormat
         match self {
             Node::Group(w) => Some(w),
             Node::Leaf(_) => None,
+        }
+    }
+
+    /// Switches the leaf and group-label strategies without touching the
+    /// stored values (a group rebuilds its nested tree recursively).
+    pub fn with_formats<NewF, NewGF>(self) -> Node<C, E, GroupContext, NewF, NewGF>
+    where
+        NewF: Format<WithContext<C, E, NewF>>,
+        NewGF: Format<GroupContext>,
+    {
+        match self {
+            Node::Leaf(w) => Node::Leaf(w.with_format()),
+            Node::Group(group) => Node::Group(group.with_formats()),
+        }
+    }
+}
+
+// --- Display / Error (so iterated children are usable as errors directly) ---
+
+/// Renders the child standalone: a leaf via its own [`WithContext`] `Display`
+/// (the pair through `F`), a group via [`Subgroup`]'s `Display`
+/// (`"{label} (…shallow summary…)"`).
+impl<C, E, GroupContext, F, GroupFormat> Display for Node<C, E, GroupContext, F, GroupFormat>
+where
+    E: Error + 'static,
+    F: Format<WithContext<C, E, F>>,
+    GroupFormat: Format<GroupContext>,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Node::Leaf(w) => Display::fmt(w, f),
+            Node::Group(group) => Display::fmt(group, f),
+        }
+    }
+}
+
+impl<C, E, GroupContext, F, GroupFormat> Error for Node<C, E, GroupContext, F, GroupFormat>
+where
+    C: fmt::Debug,
+    GroupContext: fmt::Debug,
+    E: Error + 'static,
+    F: Format<WithContext<C, E, F>>,
+    GroupFormat: Format<GroupContext>,
+{
+    /// A leaf delegates to [`WithContext`]'s `source` (which skips the inner
+    /// error itself — `Display` already shows it); a group returns `None` (an
+    /// aggregate of independent siblings has no single linear cause, matching
+    /// [`ManyErrors`]).
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Node::Leaf(w) => Error::source(w),
+            Node::Group(_) => None,
         }
     }
 }
@@ -195,6 +285,84 @@ mod tests {
         let s = format!("{node:?}");
         assert!(s.contains("Group"));
         assert!(s.contains("grp"));
+    }
+
+    #[test]
+    fn test_node_from_subgroup() {
+        let node: N = Subgroup::new("region", ManyErrors::new()).into();
+        assert!(!node.is_leaf());
+        assert_eq!(node.as_group().unwrap().context, "region");
+    }
+
+    /// `Node` renders standalone: a leaf via its pair strategy, a group via
+    /// `Subgroup`'s `"{label} (…)"`.
+    #[test]
+    fn test_node_display() {
+        use crate::tests::Mid;
+
+        let leaf: Node<&str, Mid> = Node::from(("ctx", Mid::Inner(Inner::A)));
+        assert_eq!(leaf.to_string(), "ctx: mid");
+
+        let mut inner = ManyErrors::<&str, Mid>::new();
+        inner.push("x", Mid::Inner(Inner::A));
+        let group: Node<&str, Mid> = Subgroup::new("g", inner).into();
+        assert_eq!(group.to_string(), "g (x: mid)");
+    }
+
+    /// A leaf `Node` is an error whose source skips the inner error (already
+    /// displayed); a group's source is `None`.
+    #[test]
+    fn test_node_error_source() {
+        use crate::FormatError as _;
+        use crate::tests::Mid;
+
+        let leaf: Node<&str, Mid> = Node::from(("ctx", Mid::Inner(Inner::A)));
+        assert_eq!(
+            leaf.source().expect("leaf has a source").to_string(),
+            "InnerA"
+        );
+        assert_eq!(leaf.one_line().to_string(), "ctx: mid: InnerA");
+
+        let group: Node<&str, Mid> = Subgroup::new("g", ManyErrors::new()).into();
+        assert!(group.source().is_none());
+    }
+
+    #[test]
+    fn test_subgroup_error_source_is_none() {
+        let mut inner = ManyErrors::<&str, Inner>::new();
+        inner.push("x", Inner::A);
+        let group = Subgroup::new("g", inner);
+        assert!(group.source().is_none());
+        assert_eq!(group.to_string(), "g (x: InnerA)");
+    }
+
+    /// `with_formats` swaps both strategies on a nested tree without touching values.
+    #[test]
+    fn test_with_formats_rebuilds_tree() {
+        use crate::tests::WcArrow;
+
+        struct Bracket;
+        impl<GC: core::fmt::Display> crate::Format<GC> for Bracket {
+            fn fmt(label: &GC, f: &mut Formatter<'_>) -> fmt::Result {
+                write!(f, "[{label}]")
+            }
+        }
+
+        let mut inner = ManyErrors::<&str, Inner>::new();
+        inner.push("x", Inner::A);
+        let mut outer = ManyErrors::<&str, Inner>::new();
+        outer.push("leaf", Inner::B);
+        outer.push_group("region", inner);
+        assert_eq!(
+            outer.to_string(),
+            "2 errors: leaf: InnerB; region (x: InnerA)"
+        );
+
+        let swapped: ManyErrors<&str, Inner, &str, WcArrow, Bracket> = outer.with_formats();
+        assert_eq!(
+            swapped.to_string(),
+            "2 errors: leaf -> InnerB; [region] (x -> InnerA)"
+        );
     }
 
     /// A [`Subgroup`] extracted from the enum renders losslessly: label **and** a

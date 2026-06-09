@@ -1,126 +1,42 @@
-//! [`List`]: render a [`ManyErrors`] as a numbered list.
+//! [`List`]: render a [`ManyErrors`](crate::ManyErrors) as a numbered list.
 //!
-//! `depth: usize` carries the nesting level; the visual indent is reconstructed
-//! lazily with `repeat_n("  ", depth).format("")` — no `String` allocation.
+//! The traversal lives in [`super::marked`]; `List` only contributes the
+//! `"{i}. "` row marker and its indent offsets.
 
-use core::{
-    error::Error,
-    fmt::{self, Debug, Display},
-    iter,
-};
+use core::fmt;
 
-use itertools::Itertools;
+use crate::indent::Repeat;
 
-use crate::{
-    Format, OneLine,
-    many_errors::{ManyErrors, Node},
-    with_context::WithContext,
-};
+use super::marked::{Marker, draw_marked_many};
+use super::{impl_aggregate_format, impl_ref_format};
 
-use super::impl_aggregate_format;
-
-/// Aggregate strategy that renders a [`ManyErrors`] as a numbered list.
+/// Aggregate strategy that renders a [`ManyErrors`](crate::ManyErrors) as a
+/// numbered list.
 ///
 /// # Output example
 /// ```text
 /// 3 errors:
-///   1. a: InnerA
-///   2. b: InnerB
-///   3. c: InnerC
+/// 1. a: InnerA
+/// 2. b: InnerB
+/// 3. c: InnerC
 /// ```
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct List;
 
-impl_aggregate_format!(List, |errors, f| draw_list_many::<C, E, GC, F, GF>(
-    errors, 0, f
+/// Numbered rows: top-level rows sit flush; a group's rows indent one unit
+/// past the group's content column.
+impl Marker for List {
+    const TOP_ROW: usize = 0;
+    const GROUP_ROW_OFFSET: usize = 1;
+
+    fn write_marker(f: &mut fmt::Formatter<'_>, indent: usize, index: usize) -> fmt::Result {
+        write!(f, "\n{}{}. ", Repeat("  ", indent), index + 1)
+    }
+}
+
+impl_aggregate_format!(List, |errors, f| draw_marked_many::<Self, C, E, GC, F, GF>(
+    errors, f
 ));
-
-/// Render `errors` as a numbered list at nesting `depth`.
-///
-/// - `None` writes `"no errors"`.
-/// - `One` delegates straight to [`draw_list_node`] with no header or number
-///   (a lone error reads better inline than as `1. ...`).
-/// - `Many` writes the `"N errors:"` header, then one `"{indent}{i}. "` prefix
-///   per child before recursing. `indent` is `depth` copies of `"  "`, built
-///   lazily via `repeat_n` so no `String` is allocated.
-///
-/// Children recurse at `depth + 1` so their own nested groups indent one step
-/// further than this level's numbers.
-fn draw_list_many<C, E, GC, F, GF>(
-    errors: &ManyErrors<C, E, GC, F, GF>,
-    depth: usize,
-    f: &mut fmt::Formatter<'_>,
-) -> fmt::Result
-where
-    C: Display + Debug,
-    E: Error + 'static,
-    F: Format<WithContext<C, E, F>>,
-    GF: Format<GC>,
-{
-    match errors {
-        ManyErrors::None => write!(f, "no errors"),
-        ManyErrors::One(node) => draw_list_node::<C, E, GC, F, GF>(node, depth, f),
-        ManyErrors::Many(nodes) => {
-            write!(f, "{} errors:", nodes.len())?;
-            for (i, node) in nodes.iter().enumerate() {
-                let indent = iter::repeat_n("  ", depth).format("");
-                write!(f, "\n{indent}{}. ", i + 1)?;
-                draw_list_node::<C, E, GC, F, GF>(node, depth + 1, f)?;
-            }
-            Ok(())
-        }
-    }
-}
-
-/// Render a single node; the `"{i}. "` prefix has already been written by the
-/// caller.
-///
-/// - `Leaf` renders the whole pair on one logical line via the [`OneLine`]
-///   strategy: `{w}` (context/error through `F`) followed by its source chain
-///   joined with `": "` — `WithContext`'s own `Display`/`Error::source` give
-///   exactly that.
-/// - `Group` writes the label, then:
-///   - empty group → `"{w}: no errors"`;
-///   - single child → `"{w}: "` and recurse at the *same* `depth` (the child
-///     is rendered inline after the colon, not as a new numbered row);
-///   - many children → `"{w} (N errors):"` header, then a fresh numbered list
-///     at `depth + 1`, recursing into children at `depth + 2`.
-fn draw_list_node<C, E, GC, F, GF>(
-    node: &Node<C, E, GC, F, GF>,
-    depth: usize,
-    f: &mut fmt::Formatter<'_>,
-) -> fmt::Result
-where
-    C: Display + Debug,
-    E: Error + 'static,
-    F: Format<WithContext<C, E, F>>,
-    GF: Format<GC>,
-{
-    match node {
-        Node::Leaf(w) => <OneLine as Format<_>>::fmt(w, f),
-        Node::Group(w) => match w.errors.as_ref() {
-            ManyErrors::None => {
-                GF::fmt(&w.context, f)?;
-                write!(f, ": no errors")
-            }
-            ManyErrors::One(inner) => {
-                GF::fmt(&w.context, f)?;
-                write!(f, ": ")?;
-                draw_list_node::<C, E, GC, F, GF>(inner, depth, f)
-            }
-            ManyErrors::Many(nodes) => {
-                GF::fmt(&w.context, f)?;
-                write!(f, " ({} errors):", nodes.len())?;
-                for (i, node) in nodes.iter().enumerate() {
-                    let indent = iter::repeat_n("  ", depth + 1).format("");
-                    write!(f, "\n{indent}{}. ", i + 1)?;
-                    draw_list_node::<C, E, GC, F, GF>(node, depth + 2, f)?;
-                }
-                Ok(())
-            }
-        },
-    }
-}
 
 #[cfg(test)]
 mod tests {

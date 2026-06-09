@@ -189,7 +189,7 @@ println!("{}", my_error.formatted::<Arrow>()); // outer -> middle -> inner
 
 ## Combining strategies
 
-`Add<L, R>` glues two `Format` strategies together. Both run against the same value, left then right. There's no built-in separator, drop a separator strategy (`NewLine`, `Space`, `Colon`, `ColonSpace`, `Empty`) in between, or reach for the three-arg `WithSep<L, Sep, R>` alias when you'd otherwise nest:
+`Add<L, R>` glues two `Format` strategies together. Both run against the same value, left then right. There's no built-in separator, drop a separator strategy (`NewLine`, `Space`, `ColonChar`, `ColonSpace`, `Empty`) in between, or reach for the three-arg `WithSep<L, Sep, R>` alias when you'd otherwise nest:
 
 ```rust,ignore
 use errortools::{Formatted, OneLine, Suggestion, separator::{NewLine, WithSep}};
@@ -303,9 +303,29 @@ println!("{}", errs.bullets());   // • bulleted
 println!("{}", errs.joined());    // ;-separated one line, parens around groups
 ```
 
-For full control — ASCII connectors, no count header — go through `formatted`: `Formatted::<_, Tree<Ascii, false>>::new(&errs)`.
+For full control — ASCII connectors, no count header — go through `formatted`: `errs.formatted::<Tree<Ascii, false>>()`. That's an inherent method, not the `FormatError` one, and the difference matters: the trait version requires `ManyErrors: Error`, which drags `Debug` bounds onto your context types. The inherent one has no bounds at all. Wrapping always compiles; whether the combination can print is decided by the strategy's own `Format` bounds, at the call site that actually prints.
+
+The same rule runs through the whole rendering path: no shape demands anything from a context directly. Leaves print through the leaf strategy, group labels through the label strategy, and those decide the bounds. A `PathBuf` context with `PathColon` renders in every shape even though `PathBuf` has no `Display`.
 
 Group labels can differ from leaf contexts via the third parameter, `ManyErrors<C, E, GC>`, but `GC` defaults to `C`, so the common case stays two params.
+
+A few more things it does:
+
+```rust,ignore
+// Build trees iteratively: push or collect whole nodes, groups included.
+errs.push_node(Subgroup::new("us-east-1", regional));
+let errs: ManyErrors<&str, io::Error> = nodes.into_iter().collect();
+
+// Swap both strategies after the fact, values untouched.
+let arrows = errs.with_formats::<ArrowPair, BracketLabel>();
+
+// Children are errors themselves: iterate and log, or stick one in #[source].
+for node in &errs {
+    tracing::warn!("{}", node.one_line());
+}
+```
+
+One footgun to know about: `errs.one_line()` and `errs.chain()` compile (a `ManyErrors` is an error) but print the shallow summary, because `source()` is `None` — an aggregate has no single linear cause. `joined()` and `tree()` are the deep versions. Same logic applies in reverse: a `ManyErrors` buried in another error's `#[source]` chain shows up as one summary line. If you want its branches rendered, lift it into `push_group` instead.
 
 ## How it works
 
@@ -339,4 +359,7 @@ Run with: `cargo run --example <name>`.
 
 | Feature | Default | Effect |
 |---|---|---|
-| `std` | yes | Enables `itertools/use_std`. Disable for `no_std`. |
+| `std` | yes | Path-aware strategies (`PathColon`, `DisplayPath`). Implies `alloc`. |
+| `alloc` | via `std` | `ManyErrors` and the aggregate shapes (`Tree`, `List`, `Bullets`, `Joined`). |
+
+Without either, the per-error core still works: `MainResult`, `OneLine`, `Chain`, `WithContext`, `Suggestion`, `Add`.

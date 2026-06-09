@@ -17,7 +17,7 @@
 
 use core::fmt::{self, Display, Formatter};
 
-use errortools::{Connectors, Format, FormatError, ManyErrors, Tree, TreeConnectors, WithContext};
+use errortools::{Connectors, Format, ManyErrors, Tree, TreeConnectors, WithContext};
 use pretty_assertions::assert_eq;
 use thiserror::Error;
 
@@ -259,4 +259,113 @@ failed: load\t=> write\tfailed: disk
 \tfull";
 
     assert_eq!(outer.joined().to_string(), expected_one_line);
+}
+
+/// Same malformed fixture through [`List`](errortools::List): foreign content
+/// (leaf chains, group labels) is re-indented to the list column; the
+/// structural `\n{indent}{i}. ` markers stay raw.
+#[test]
+fn malformed_list() {
+    let mut inner: BadMany = ManyErrors::new();
+    inner.push("conf\tig", bad_nested("fsync"));
+    inner.push("net\nwork", bad_nested("connect"));
+
+    let mut outer: BadMany = ManyErrors::new();
+    outer.push_group(
+        Region {
+            code: "us\teast",
+            zone: 9,
+        },
+        inner,
+    );
+    outer.push("start\nup", bad_nested("load"));
+
+    let rendered = outer.list().to_string();
+    println!("--- list ---\n{rendered}");
+
+    let expected = "\
+2 errors:
+1. [us\teast#9]
+    (2 errors):
+    1. conf\tig
+      \t-> op
+      failed: fsync\t=> write\tfailed: disk
+      \tfull
+    2. net
+      work
+      \t-> op
+      failed: connect\t=> write\tfailed: disk
+      \tfull
+2. start
+  up
+  \t-> op
+  failed: load\t=> write\tfailed: disk
+  \tfull";
+
+    assert_eq!(rendered, expected);
+}
+
+/// Same malformed fixture through [`Bullets`](errortools::Bullets): foreign
+/// content is re-indented one unit past its bullet's row indent.
+#[test]
+fn malformed_bullets() {
+    let mut inner: BadMany = ManyErrors::new();
+    inner.push("conf\tig", bad_nested("fsync"));
+    inner.push("net\nwork", bad_nested("connect"));
+
+    let mut outer: BadMany = ManyErrors::new();
+    outer.push_group(
+        Region {
+            code: "us\teast",
+            zone: 9,
+        },
+        inner,
+    );
+    outer.push("start\nup", bad_nested("load"));
+
+    let rendered = outer.bullets().to_string();
+    println!("--- bullets ---\n{rendered}");
+
+    let expected = "\
+2 errors:
+  • [us\teast#9]
+      (2 errors):
+    • conf\tig
+      \t-> op
+      failed: fsync\t=> write\tfailed: disk
+      \tfull
+    • net
+      work
+      \t-> op
+      failed: connect\t=> write\tfailed: disk
+      \tfull
+  • start
+    up
+    \t-> op
+    failed: load\t=> write\tfailed: disk
+    \tfull";
+
+    assert_eq!(rendered, expected);
+}
+
+/// A single deep leaf through [`Chain`](errortools::Chain): a source whose
+/// message embeds `\n` re-indents its continuation lines to `depth × GAP`
+/// (the top error stays flush — depth 0). Trailing-`\n` content leaves a
+/// trailing prefix, same as the tree renderer.
+#[test]
+fn malformed_chain() {
+    use errortools::FormatError as _;
+
+    let error = bad_nested("fsync");
+    let rendered = error.chain().to_string();
+    println!("--- chain ---\n{rendered}");
+
+    let expected = "\
+op
+failed
+└─ fsync\t=> write\tfailed
+   └─ disk
+      \tfull";
+
+    assert_eq!(rendered, expected);
 }

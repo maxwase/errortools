@@ -61,6 +61,13 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// ```
 ///
 /// ## Custom strategy via an impl of `Format<WithContext<...>> for YourStrategy`
+///
+/// The strategy should render the error's own text (`w.error`):
+/// [`Error::source`] deliberately skips the inner error, so chain-walking
+/// renderers ([`OneLine`](crate::OneLine), [`Chain`](crate::Chain), the
+/// aggregate shapes) assume the strategy already printed it — a strategy that
+/// omits it (e.g. context-only) silently drops the error text from every deep
+/// rendering.
 /// ```
 /// use core::fmt::{self, Display, Formatter};
 /// use errortools::{Format, WithContext};

@@ -36,6 +36,13 @@ pub use strategy::{Bullets, Joined, List, Tree};
 /// [`FormatError::formatted`](crate::FormatError::formatted) for full generic
 /// control (e.g. `Tree<Ascii, false>`).
 ///
+/// Note that the generic per-error helpers
+/// [`one_line`](crate::FormatError::one_line) /
+/// [`chain`](crate::FormatError::chain) walk [`Error::source`], which is
+/// always `None` here — on a `ManyErrors` they render exactly the shallow
+/// `Display` text. For deep aggregate rendering use
+/// [`joined`](ManyErrors::joined) / [`tree`](ManyErrors::tree) instead.
+///
 /// # Customizing group rendering
 /// Two independent levers:
 /// - **Label decoration** — the group-label strategy `GF` is a label-only
@@ -47,20 +54,60 @@ pub use strategy::{Bullets, Joined, List, Tree};
 ///   double-render and break the layout.
 /// - **Whole layout** — for full control over label, separators, and nesting,
 ///   implement [`Format<ManyErrors<…>>`](crate::Format) for your own marker
-///   (exactly like [`Tree`]/[`List`]) and render via
-///   [`formatted`](crate::FormatError::formatted).
+///   (exactly like [`Tree`]/[`List`]) plus a one-line ref forwarder, and render
+///   via [`formatted`](ManyErrors::formatted):
+///
+/// ```
+/// use core::fmt::{self, Display, Formatter};
+/// use errortools::{Format, ManyErrors, Node};
+///
+/// /// Renders each direct child on its own `"- "` line (shallow).
+/// struct Dashed;
+///
+/// impl<C: Display, E: Display, GC: Display, F, GF> Format<ManyErrors<C, E, GC, F, GF>> for Dashed {
+///     fn fmt(errors: &ManyErrors<C, E, GC, F, GF>, f: &mut Formatter<'_>) -> fmt::Result {
+///         for node in errors {
+///             match node {
+///                 Node::Leaf(w) => writeln!(f, "- {}: {}", w.context, w.error)?,
+///                 Node::Group(g) => writeln!(f, "- {} ({} nested)", g.context, g.errors.len())?,
+///             }
+///         }
+///         Ok(())
+///     }
+/// }
+///
+/// // The ref forwarder lets `Formatted<&ManyErrors<…>, Dashed>` render too.
+/// impl<T: ?Sized> Format<&T> for Dashed
+/// where
+///     Dashed: Format<T>,
+/// {
+///     fn fmt(errors: &&T, f: &mut Formatter<'_>) -> fmt::Result {
+///         <Self as Format<T>>::fmt(*errors, f)
+///     }
+/// }
+///
+/// let mut errs = ManyErrors::<&str, std::io::Error>::new();
+/// errs.push("config", std::io::Error::other("missing"));
+/// errs.push("network", std::io::Error::other("refused"));
+/// assert_eq!(
+///     errs.formatted::<Dashed>().to_string(),
+///     "- config: missing\n- network: refused\n"
+/// );
+/// ```
 ///
 /// All standard-trait impls are written manually so they do **not** add
 /// `F: Trait` bounds (mirroring [`WithContext`]'s `PhantomData<fn() -> F>`).
 ///
 /// # Context bounds
-/// To put a `ManyErrors` in an [`Error`] position (e.g. as a `#[source]`, or to
-/// render it via [`Display`]/[`Formatted`](crate::Formatted)), the leaf context
-/// `C` **and** the group context `GC` must implement [`Debug`](Debug)
-/// — not for display, but because [`Error`] requires `Debug` as a supertrait and
-/// that bound propagates through the manual `Debug` impl. A custom group-context
-/// type therefore needs a `Debug` derive even though only its [`Display`] is
-/// printed.
+/// Rendering itself bounds neither `C` nor `GC`: leaves go through `F`, group
+/// labels through `GF`, and those strategies decide what each context must
+/// implement (the default [`Colon`]/[`AsDisplay`] need
+/// [`Display`](core::fmt::Display); a path context works with
+/// [`PathColon`](crate::with_context::PathColon) and no `Display` at all).
+/// Only putting a `ManyErrors` in an [`Error`] *position* (e.g. as a
+/// `#[source]`) additionally requires `C: Debug` and `GC: Debug`, because
+/// [`Error`] has `Debug` as a supertrait and the bound propagates through the
+/// manual `Debug` impl.
 ///
 /// # Example
 /// ```
@@ -150,13 +197,18 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
         self.push_node(Node::Group(Subgroup::new(context, errors)));
     }
 
-    pub(crate) fn push_node(&mut self, node: Node<C, E, GC, F, GF>) {
+    /// Appends a child [`Node`] directly, promoting `None → One → Many`.
+    ///
+    /// Accepts anything convertible into a [`Node`]: a `(C, E)` pair, a
+    /// [`WithContext`], a [`Subgroup`], or a `Node` itself — the general form
+    /// behind [`push`](Self::push) / [`push_group`](Self::push_group).
+    pub fn push_node(&mut self, node: impl Into<Node<C, E, GC, F, GF>>) {
         let prev = core::mem::take(self);
         *self = match prev {
-            Self::None => Self::One(node),
-            Self::One(first) => Self::Many(vec![first, node]),
+            Self::None => Self::One(node.into()),
+            Self::One(first) => Self::Many(vec![first, node.into()]),
             Self::Many(mut v) => {
-                v.push(node);
+                v.push(node.into());
                 Self::Many(v)
             }
         };
@@ -175,6 +227,24 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
         match self {
             Self::None => Ok(ok),
             _ => Err(self),
+        }
+    }
+
+    /// Switches the leaf strategy `F` and group-label strategy `GF` without
+    /// touching the stored values, rebuilding the tree recursively (O(n), one
+    /// new box per group). The aggregate counterpart of
+    /// [`WithContext::with_format`].
+    pub fn with_formats<NewF, NewGF>(self) -> ManyErrors<C, E, GC, NewF, NewGF>
+    where
+        NewF: Format<WithContext<C, E, NewF>>,
+        NewGF: Format<GC>,
+    {
+        match self {
+            Self::None => ManyErrors::None,
+            Self::One(node) => ManyErrors::One(node.with_formats()),
+            Self::Many(nodes) => {
+                ManyErrors::Many(nodes.into_iter().map(Node::with_formats).collect())
+            }
         }
     }
 }
@@ -201,6 +271,32 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     pub fn joined(&self) -> crate::Formatted<&Self, Joined> {
         crate::Formatted::new(self)
     }
+
+    /// Wraps `self` for rendering with an arbitrary aggregate [`Format`]
+    /// strategy `F2` — the escape hatch behind [`tree`](Self::tree)/
+    /// [`list`](Self::list)/… for custom markers or non-default generics
+    /// (e.g. `Tree<Ascii, false>`).
+    ///
+    /// # This is not [`FormatError::formatted`](crate::FormatError::formatted)
+    ///
+    /// The trait method comes from the blanket `impl FormatError for E: Error`,
+    /// so calling it requires `ManyErrors: Error` — which drags in `C: Debug`
+    /// and `GC: Debug` (the [`Error`] supertrait), even though no strategy
+    /// needs them to render. This inherent method is completely unbounded
+    /// (and `const`): wrapping always works; whether the combination can
+    /// actually print is decided by `F2`'s own [`Format`] bounds at the
+    /// `Display` call site.
+    ///
+    /// At a call site the inherent method always wins over the trait method,
+    /// and when both apply they produce the identical
+    /// [`Formatted`](crate::Formatted) value — so there is nothing to choose:
+    /// `errs.formatted::<F2>()` just also compiles for aggregates that aren't
+    /// errors themselves (a non-`Debug` context type, for example). The trait
+    /// method remains reachable as `FormatError::formatted(&errs)` if you need
+    /// to prove the `Error` bound.
+    pub const fn formatted<F2>(&self) -> crate::Formatted<&Self, F2> {
+        crate::Formatted::new(self)
+    }
 }
 
 /// Renders a shallow, single-line summary: `"N errors: child1; child2; …"`,
@@ -210,7 +306,6 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
 /// [`bullets`](ManyErrors::bullets).
 impl<C, E, GC, F, GF> Display for ManyErrors<C, E, GC, F, GF>
 where
-    C: Display + Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
@@ -222,7 +317,7 @@ where
 
 impl<C, E, GC, F, GF> Error for ManyErrors<C, E, GC, F, GF>
 where
-    C: Display + Debug,
+    C: Debug,
     GC: Debug,
     E: Error + 'static,
     F: Format<WithContext<C, E, F>>,
@@ -232,6 +327,14 @@ where
     /// linear cause, so it exposes nothing through [`Error::source`]. Inspect
     /// the children directly, or render the full chains via a strategy
     /// ([`tree`](Self::tree), [`joined`](Self::joined), …).
+    ///
+    /// Consequently, a `ManyErrors` buried in another error's source chain
+    /// (e.g. as a `#[source]`) renders as one shallow [`Display`] line under
+    /// chain-walking strategies like [`OneLine`](crate::OneLine) /
+    /// [`Chain`](crate::Chain), and the walk stops there — a generic strategy
+    /// cannot see branches through `dyn Error`. To render an aggregate's
+    /// children deeply, lift it into a [`push_group`](Self::push_group) of an
+    /// outer `ManyErrors` instead of chaining it as a source.
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         None
     }
