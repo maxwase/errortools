@@ -362,3 +362,16 @@ Run with: `cargo run --example <name>`.
 | `alloc` | via `std` | `ManyErrors` and the aggregate shapes (`Tree`, `List`, `Bullets`, `Joined`). |
 
 Without either, the per-error core still works: `MainResult`, `OneLine`, `Chain`, `WithContext`, `Suggestion`, `Add`.
+
+## Skills
+
+This repo has a claude marketplace that can be added with `maxwase/errortools`.
+The marketplace has three skills for Rust error-handling:
+| Name | Description |
+|---|---|
+| `rust-error-handling` | Base skill that routes to other error-handling skills depending on the context. |
+| `structured-error-handling` | Designing error types and source chains, using `#[source]` vs `#[from]`, `map_err` conventions. |
+| `using-errortools` | Using `MainResult`, `FormatError`, `WithContext`, `ManyErrors`, custom format strategies. |
+| `migrating-from-unstructured` | Moving away from `anyhow` or scattered `unwrap`/`expect`/`Box<dyn Error>` to structured error types and `MainResult`. |
+
+Usage: Mention /rust-error-handling in a prompt, and the skill will route to the right sub-skill depending on the context. It can both migrate existing code to structured error handling and help design new error types and chains. It can also help with using the `errortools` crate for formatting and context in Rust projects.
