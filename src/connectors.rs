@@ -1,5 +1,5 @@
 //! Box-drawing glyph sets shared by the [`Chain`](crate::Chain) source-chain
-//! ladder and the [`Tree`](crate::many_errors::Tree) aggregate renderer.
+//! ladder and the `Tree` aggregate renderer (requires the `alloc` feature).
 //!
 //! A linear chain is a degenerate tree: every node is an only-child, so it
 //! always renders as a "last" child with a blank continuation under it. That's
@@ -21,7 +21,7 @@ pub trait Connectors {
     const GAP: &'static str;
 }
 
-/// The full box-drawing set a branching [`Tree`](crate::many_errors::Tree)
+/// The full box-drawing set a branching `Tree` aggregate renderer
 /// needs: the [`Connectors`] pair plus the sibling glyphs for non-last children.
 pub trait TreeConnectors: Connectors {
     /// Prefix for a non-last child: `"├─ "` (Unicode).

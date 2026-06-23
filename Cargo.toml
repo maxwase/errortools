@@ -15,7 +15,7 @@ include = ["src/**/*.rs", "examples/**/*.rs", "README.md", "CHANGELOG.md", "LICE
 
 [dependencies]
 derive-where = "1.6.1"
-itertools = { version = "0.14", default-features = false }
+itertools = { version = "0.15", default-features = false }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

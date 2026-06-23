@@ -271,7 +271,7 @@ use errortools::ManyErrors;
 
 let mut errs = ManyErrors::new();
 errs.push("eu-west-1", RegionError::Refused);
-errs.push("us-east-1", RegionError::Timeout);
+errs.push("us-east-1", RegionError::Refused);
 
 errs.into_result(())?; // Ok if empty, Err(ManyErrors) otherwise
 ```
@@ -284,21 +284,21 @@ Group related failures with `push_group` and the shapes nest. `tree()` gives the
 2 errors:
 ├─ us-east-1 (2 errors):
 │  ├─ i-0a1: connection refused
-│  └─ i-0b2: timed out: network partition
+│  └─ i-0b2: connection refused
 └─ eu-west-1: connection refused
 ```
 
 The default `Display` (`{errs}`) is deliberately a shallow one-line *summary* — each error's own text, no source chains — so it's safe to embed in a message or log, following the Rust convention that an error's `Display` is its own message:
 
 ```text
-2 errors: us-east-1 (2 errors: i-0a1: connection refused; i-0b2: timed out); eu-west-1: connection refused
+2 errors: us-east-1 (2 errors: i-0a1: connection refused; i-0b2: connection refused); eu-west-1: connection refused
 ```
 
 For the full picture, the shapes are inherent helpers, no turbofish — `tree()` and `joined()` walk the source chains, `list()` and `bullets()` too:
 
 ```rust,ignore
 println!("{}", errs.tree());      // Unicode tree (above)
-println!("{}", errs.list());      // 1.  1.1.  2.
+println!("{}", errs.list());      // numbered outline
 println!("{}", errs.bullets());   // • bulleted
 println!("{}", errs.joined());    // ;-separated one line, parens around groups
 ```
@@ -315,9 +315,6 @@ A few more things it does:
 // Build trees iteratively: push or collect whole nodes, groups included.
 errs.push_node(Subgroup::new("us-east-1", regional));
 let errs: ManyErrors<&str, io::Error> = nodes.into_iter().collect();
-
-// Swap both strategies after the fact, values untouched.
-let arrows = errs.with_formats::<ArrowPair, BracketLabel>();
 
 // Children are errors themselves: iterate and log, or stick one in #[source].
 for node in &errs {
@@ -346,7 +343,7 @@ Runnable examples in [`examples/`](https://github.com/maxwase/errortools/tree/ma
 | Example | What it shows |
 |---|---|
 | [`one_line`](https://github.com/maxwase/errortools/blob/master/examples/one_line.rs) | `MainResult` with default `OneLine` format |
-| [`tree`](https://github.com/maxwase/errortools/blob/master/examples/tree.rs) | `MainResult<E, Chain>` for indented multi-line output |
+| [`chain`](https://github.com/maxwase/errortools/blob/master/examples/chain.rs) | `MainResult<E, Chain>` for indented multi-line output |
 | [`format_error`](https://github.com/maxwase/errortools/blob/master/examples/format_error.rs) | `FormatError` trait for ad-hoc formatting |
 | [`custom_format`](https://github.com/maxwase/errortools/blob/master/examples/custom_format.rs) | A custom `Format` strategy |
 | [`transparent`](https://github.com/maxwase/errortools/blob/master/examples/transparent.rs) | `#[error(transparent)]` pass-through with `#[from]` |

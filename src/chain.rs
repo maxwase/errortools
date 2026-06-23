@@ -1,6 +1,6 @@
 //! Per-error source-chain ladder renderer ([`Chain`]).
 //!
-//! This is distinct from [`Tree`](crate::many_errors::Tree), which renders
+//! This is distinct from `Tree` (requires the `alloc` feature), which renders
 //! a branching *aggregate* of many errors. `Chain` renders a *single* error's
 //! linear source chain as an indented ladder:
 //!
@@ -28,17 +28,23 @@ use crate::{
 ///    └─ source 2
 /// ```
 ///
+/// # `Chain` vs `Tree`
+///
+/// `Chain` formats a **single** error's linear source chain — one error, one
+/// straight line of causes. `Tree` (requires `alloc`) formats a **`ManyErrors`
+/// aggregate** — many independent errors, each with their own source chain,
+/// arranged as a branching tree. They share the same [`Connectors`] glyph
+/// vocabulary so `Chain<Ascii>` and `Tree<Ascii>` look consistent.
+///
 /// A linear chain is a degenerate tree — every node is an only-child — so it
 /// uses only the "last child" branch glyph ([`Connectors::LAST`]) and the blank
 /// continuation ([`Connectors::GAP`]). The marker is printed before each source
-/// and the continuation is repeated `depth - 1` times. Swap the glyph set with
-/// [`Ascii`](crate::Ascii) (or any custom [`Connectors`] impl) the same way
-/// [`Tree`](crate::many_errors::Tree) does — one vocabulary serves both.
+/// and the continuation is repeated `depth - 1` times.
 ///
 /// Use [`FormatError::chain`](crate::FormatError::chain) for the most common case.
-/// For aggregate many-error rendering see [`Tree`](crate::many_errors::Tree).
+/// For aggregate many-error rendering see `Tree` (requires the `alloc` feature).
 ///
-/// An aggregate ([`ManyErrors`](crate::ManyErrors)) buried in the source chain
+/// An aggregate (`ManyErrors`, requires the `alloc` feature) buried in the source chain
 /// renders as one shallow summary line and stops the walk (its `source()` is
 /// `None`, and branching can't be recovered through `dyn Error`) — lift it
 /// into a `push_group` of an outer aggregate for deep rendering.

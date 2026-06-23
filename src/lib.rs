@@ -31,7 +31,9 @@ pub use chain::Chain;
 pub use connectors::{Ascii, Connectors, TreeConnectors, Unicode};
 pub use main_result::{DisplaySwapDebug, MainResult, MainResultWithSuggestion, WithSuggestion};
 #[cfg(feature = "alloc")]
-pub use many_errors::{Bullets, Joined, List, ManyErrors, Node, Subgroup, Tree};
+pub use many_errors::{
+    Bullets, IntoIter, Iter, IterMut, Joined, List, ManyErrors, Node, Subgroup, Tree,
+};
 pub use oneline::OneLine;
 #[cfg(feature = "std")]
 pub use path_display::DisplayPath;
@@ -63,14 +65,14 @@ pub use with_context::WithContext;
 /// # `Debug` convention across this crate
 /// Strategy tags carry their configuration only at the type level (in a phantom
 /// `PhantomData<fn() -> _>`), so their `Debug` is hand-written:
-/// - **Pure-strategy types** ([`Chain`], [`Add`], [`Tree`], and [`Formatted`])
+/// - **Pure-strategy types** ([`Chain`], [`Add`], `Tree`, and [`Formatted`])
 ///   materialize the phantom marker via [`Default`] and print its configuration
 ///   — these impls bound the marker `…: Debug + Default`, while their
 ///   auto-traits ([`Clone`]/[`Copy`]/[`PartialEq`]/[`Eq`]/[`Hash`]) stay free of
 ///   any marker bound.
-/// - **Payload types** ([`WithContext`], [`ManyErrors`], [`Node`]) print their
+/// - **Payload types** ([`WithContext`], `ManyErrors`, `Node`) print their
 ///   own name and fields, hiding the phantom
-///   strategy. Thin display adapters ([`DisplayPath`]) instead stay transparent
+///   strategy. Thin display adapters (`DisplayPath`) instead stay transparent
 ///   to mirror their target's `Debug`.
 pub trait Format<E: ?Sized> {
     /// Writes `error` and its source chain to `f` using the strategy.
@@ -110,7 +112,7 @@ pub trait FormatError {
     /// Formats the error as an indented source-chain ladder.
     ///
     /// For aggregate many-error rendering (branching tree) see
-    /// [`ManyErrors::tree`](crate::many_errors::ManyErrors::tree).
+    /// `ManyErrors::tree` (requires the `alloc` feature).
     fn chain(&self) -> Formatted<&Self, Chain> {
         self.formatted::<Chain>()
     }
@@ -129,7 +131,7 @@ pub trait FormatError {
     /// Available on any [`Error`] via the blanket impl. Types that should
     /// render even when they don't implement `Error` provide an unbounded
     /// inherent twin that shadows this method and returns the same wrapper —
-    /// see [`ManyErrors::formatted`](crate::ManyErrors::formatted).
+    /// see `ManyErrors::formatted` (requires the `alloc` feature).
     fn formatted<F>(&self) -> Formatted<&Self, F> {
         Formatted::new(self)
     }
@@ -164,7 +166,7 @@ impl<E, F: Format<E>> fmt::Display for Formatted<E, F> {
 }
 
 /// Surfaces both the wrapped error and the active strategy (materialized via
-/// [`Default`], like [`Chain`]/[`Add`]/[`Tree`]) rather than printing
+/// [`Default`], like [`Chain`]/[`Add`]/`Tree`) rather than printing
 /// `Formatted(.., PhantomData)`. The `F: Debug + Default` bound applies to this
 /// `Debug` impl only — the auto-trait impls above stay free of any `F` bound.
 impl<E: fmt::Debug, F: fmt::Debug + Default> fmt::Debug for Formatted<E, F> {

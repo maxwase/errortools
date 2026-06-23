@@ -19,6 +19,7 @@ mod node;
 mod strategy;
 
 pub use crate::connectors::{Ascii, Connectors, TreeConnectors, Unicode};
+pub use iter::{IntoIter, Iter, IterMut};
 pub use node::{Node, Subgroup};
 pub use strategy::{Bullets, Joined, List, Tree};
 
@@ -252,7 +253,7 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
 // --- Inherent formatting helpers (no turbofish needed for common shapes) ---
 
 impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
-    /// Renders as a branching Unicode tree with a count header (same as default [`Display`]).
+    /// Renders as a branching Unicode tree with a count header, walking each leaf's source chain.
     pub fn tree(&self) -> crate::Formatted<&Self, Tree> {
         crate::Formatted::new(self)
     }

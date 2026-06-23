@@ -1,6 +1,6 @@
 //! `MainResult` with the [`Chain`] format (per-error source-chain ladder).
 //!
-//! Run: `cargo run --example tree`
+//! Run: `cargo run --example chain`
 //!
 //! Output:
 //!

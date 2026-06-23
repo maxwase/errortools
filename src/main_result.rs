@@ -7,7 +7,7 @@ use super::{Format, Formatted, OneLine};
 
 /// A result type that wraps an error with [Formatted] and [DisplaySwapDebug] to output from the `main` function.
 ///
-/// The format strategy `F` defaults to [`OneLine`]; pass [`crate::Tree`] or a custom [`Format`]
+/// The format strategy `F` defaults to [`OneLine`]; pass [`Chain`](crate::Chain) or a custom [`Format`]
 /// to change how the error is rendered when `main` returns `Err`.
 /// The success type `T` defaults to `()`; pass `ExitCode` or another type to return from `main`.
 pub type MainResult<E, F = OneLine, T = ()> =
