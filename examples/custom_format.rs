@@ -2,7 +2,7 @@
 //!
 //! Run: `cargo run --example custom_format`
 //!
-//! Output: `outer -> middle -> inner`
+//! Output: `Outer -> Middle -> inner`
 
 use core::{error::Error, fmt};
 use std::io;
@@ -20,13 +20,13 @@ impl<E: Error + ?Sized> Format<E> for Arrow {
 
 #[derive(Debug, thiserror::Error)]
 enum AppError {
-    #[error("outer")]
+    #[error("Outer")]
     Outer(#[source] MidError),
 }
 
 #[derive(Debug, thiserror::Error)]
 enum MidError {
-    #[error("middle")]
+    #[error("Middle")]
     Middle(#[source] io::Error),
 }
 

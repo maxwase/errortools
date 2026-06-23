@@ -1,7 +1,7 @@
 # Aggregating many failures: `ManyErrors`
 
-Read this when an operation shouldn't stop at the first failure — validating a
-whole config, deploying to every region, parsing a batch — and you want to
+Read this when an operation shouldn't stop at the first failure (validating a
+whole config, deploying to every region, parsing a batch) and you want to
 report all of them, grouped and readable, instead of just the first. (Requires
 the `alloc` feature, on by default.)
 
@@ -26,12 +26,12 @@ errs.into_result(())?; // Ok(()) if empty, Err(ManyErrors) otherwise
 | `new()` / `is_empty()` / `len()` | construct / inspect |
 | `push(context, error)` | append a leaf, promoting `None → One → Many` |
 | `push_group(label, sub)` | append a named nested `ManyErrors` |
-| `push_node(node)` | append anything `Into<Node>` — a `(C, E)` pair, `WithContext`, `Subgroup`, or `Node` |
+| `push_node(node)` | append anything `Into<Node>`: a `(C, E)` pair, `WithContext`, `Subgroup`, or `Node` |
 | `into_result(ok)` | `Ok(ok)` if empty, else `Err(self)` |
 | `with_formats::<F, GF>()` | swap leaf + group-label strategies |
 
 You can also collect straight from an iterator of `(context, error)` pairs or
-`WithContext` values — `ManyErrors` implements `FromIterator` and `Extend`,
+`WithContext` values. `ManyErrors` implements `FromIterator` and `Extend`,
 which composes with itertools' `partition_result`:
 
 ```rust
@@ -54,7 +54,7 @@ all.push("eu-west-1", RegionError::Refused);
 
 ## Rendering shapes
 
-The shapes are **inherent helpers** — no turbofish — and they walk each leaf's
+The shapes are **inherent helpers** (no turbofish) and they walk each leaf's
 source chain:
 
 ```rust
@@ -74,15 +74,15 @@ println!("{}", all.joined());    // ;-separated single line, parens around group
 └─ eu-west-1: connection refused
 ```
 
-The default `Display` (`{all}`) is deliberately a **shallow one-line summary** —
-each error's own text, no source chains — so it's safe to embed in a message or
+The default `Display` (`{all}`) is deliberately a **shallow one-line summary**
+(each error's own text, no source chains), so it's safe to embed in a message or
 log, following the Rust convention that an error's `Display` is its own message:
 
 ```text
 2 errors: us-east-1 (2 errors: i-0a1: connection refused; i-0b2: connection refused); eu-west-1: connection refused
 ```
 
-For full control — ASCII connectors, no count header — go through the inherent
+For full control (ASCII connectors, no count header) go through the inherent
 `formatted` with explicit generics. `Tree<Conn, HEADER>`:
 
 ```rust
@@ -91,7 +91,7 @@ println!("{}", Formatted::<_, Tree<Ascii, false>>::new(&all)); // ASCII, no head
 println!("{}", all.formatted::<Tree<Ascii, false>>());          // same, shorter
 ```
 
-## Two `formatted` methods — use the inherent one
+## Two `formatted` methods: use the inherent one
 
 `errs.formatted::<F>()` resolves to an **inherent** method that is completely
 unbounded (and `const`): wrapping always compiles; whether the combination can
@@ -101,7 +101,7 @@ The `FormatError::formatted` *trait* method also exists, but calling it requires
 `ManyErrors: Error`, which drags `C: Debug` and `GC: Debug` onto your context
 types (the `Error` supertrait) even though no strategy needs them to render. At a
 call site the inherent method wins automatically and produces the identical
-value — so just write `errs.formatted::<F>()`. A `PathBuf` context with
+value, so just write `errs.formatted::<F>()`. A `PathBuf` context with
 `PathColon` then renders in every shape even though `PathBuf` has no `Display`.
 
 The same rule runs through the whole path: no shape demands anything from a
@@ -121,22 +121,22 @@ for node in &errs {
 
 ## Footgun: `one_line()` / `chain()` on an aggregate
 
-A `ManyErrors` *is* an `Error`, so `errs.one_line()` and `errs.chain()` compile —
+A `ManyErrors` *is* an `Error`, so `errs.one_line()` and `errs.chain()` compile,
 but they print only the shallow summary, because `Error::source()` is always
 `None` (an aggregate has no single linear cause). The deep versions are
 `joined()` (one line) and `tree()` (multi-line).
 
 Same logic in reverse: a `ManyErrors` buried in another error's `#[source]`
 chain shows up as **one summary line** under `OneLine`/`Chain`, and the walk
-stops there — branching can't be recovered through `dyn Error`. If you want its
+stops there; branching can't be recovered through `dyn Error`. If you want its
 branches rendered, lift it into a `push_group` of an outer `ManyErrors` instead
 of chaining it as a source.
 
 ## Custom aggregate shapes
 
-Need your own layout? Implement `Format<ManyErrors<…>>` and match on the public
+Need your own layout? Implement `Format<ManyErrors<...>>` and match on the public
 `ManyErrors` / `Node` variants, plus a small `&T` ref-forwarder so
-`Formatted<&ManyErrors<…>, _>` works:
+`Formatted<&ManyErrors<...>, _>` works:
 
 ```rust
 use core::fmt::{self, Display, Formatter};
@@ -172,5 +172,5 @@ module docs for a worked example.
 Group labels can differ from leaf contexts via the third parameter
 `ManyErrors<C, E, GC>`, but `GC` defaults to `C`, so the common case stays two
 params. Label decoration is a separate lever: the group-label strategy `GF`
-(default `AsDisplay`) is label-only and never sees the nested errors — laying
+(default `AsDisplay`) is label-only and never sees the nested errors; laying
 those out is the aggregate strategy's job.

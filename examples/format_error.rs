@@ -8,7 +8,7 @@ use errortools::FormatError;
 
 #[derive(Debug, thiserror::Error)]
 enum AppError {
-    #[error("failed to load config")]
+    #[error("Failed to load config")]
     Config(#[source] io::Error),
 }
 

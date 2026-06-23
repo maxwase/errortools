@@ -9,15 +9,15 @@ use errortools::{Formatted, ManyErrors, many_errors::Tree};
 
 #[derive(Debug, thiserror::Error)]
 enum DeployError {
-    #[error("deploy failed")]
+    #[error("Deploy failed")]
     Failed(#[source] ManyErrors<&'static str, RegionError>),
 }
 
 #[derive(Debug, thiserror::Error)]
 enum RegionError {
-    #[error("connection refused")]
+    #[error("Connection refused")]
     Refused,
-    #[error("timed out")]
+    #[error("Timed out")]
     Timeout(#[source] io::Error),
 }
 

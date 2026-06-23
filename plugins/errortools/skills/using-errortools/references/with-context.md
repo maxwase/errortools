@@ -1,7 +1,7 @@
 # Attaching context: `WithContext`
 
-Read this when an error needs a value carried alongside it — a file path, a step
-number, a retry attempt, a record ID — and inventing a one-off wrapper variant
+Read this when an error needs a value carried alongside it (a file path, a step
+number, a retry attempt, a record ID) and inventing a one-off wrapper variant
 just to hold that value would be noise.
 
 `WithContext<C, E, F = Colon>` pairs a context value `C` with an error `E` and
@@ -28,7 +28,7 @@ let ctx = WithContextColon::new("path/to/config", err);
 assert_eq!(ctx.one_line().to_string(), "path/to/config: file missing");
 ```
 
-Any `Display` context works — a retry attempt number, for instance:
+Any `Display` context works. A retry attempt number, for instance:
 
 ```rust
 use errortools::WithContext;
@@ -58,7 +58,7 @@ use errortools::{MainResult, WithContext, with_context::WithPath};
 use std::{fs::File, io, path::Path};
 
 #[derive(Debug, thiserror::Error)]
-#[error("failed to create file")]
+#[error("Failed to create file")]
 struct Error(#[from] WithPath<&'static Path, io::Error>);
 
 fn main() -> MainResult<Error> {
@@ -69,16 +69,16 @@ fn main() -> MainResult<Error> {
 ```
 
 ```text
-Error: failed to create file: no/such/dir/foo.txt: No such file or directory (os error 2)
+Error: Failed to create file: no/such/dir/foo.txt: No such file or directory (os error 2)
 ```
 
 `#[from]` is what pins the format parameter: `WithContext::new(path, e)` infers
-`PathColon` from the target `WithPath<…>`, no turbofish needed.
+`PathColon` from the target `WithPath<...>`, no turbofish needed.
 
 ## Nesting context layers
 
 Layers nest, and the chain reads outside-in. Wrap a
-`WithContext<usize, io::Error>` (attempt) inside a `WithPath<&Path, …>` (path)
+`WithContext<usize, io::Error>` (attempt) inside a `WithPath<&Path, ...>` (path)
 and you get `"<path>: <attempt>: <io error>"`:
 
 ```rust
@@ -99,7 +99,7 @@ change the look:
 
 **1. Compose field extractors with a separator.** `Colon` is just
 `WithColonSpace<ContextField, ErrorField>`. Swap the separator to change the
-delimiter — every extractor/separator is a `Format` tag:
+delimiter, since every extractor/separator is a `Format` tag:
 
 ```rust
 use errortools::{WithContext, separator::WithSpace, with_context::{ContextField, ErrorField}};
@@ -138,14 +138,14 @@ assert_eq!(w.to_string(), "1 -> boom");
 
 `with_format::<NewF>()` switches the strategy on an existing value without
 touching the stored fields. `From<(C, E)>` lets a `(context, error)` tuple
-become a `WithContext` directly — handy with iterator adapters.
+become a `WithContext` directly, handy with iterator adapters.
 
 ## When to reach for it (and when not)
 
 - **Reach for it** instead of a single-variant wrapper struct/enum whose only
   purpose is to attach a path/ID/attempt to a foreign error. This keeps the
   source chain honest and avoids variant sprawl.
-- **Still use a real variant** when the context *is* the operation's identity
+- **May use a real variant** when the context *is* the operation's identity
   and you'll match on it (e.g. `LoadUser { id, #[source] source }`). Context
   that callers branch on belongs in the enum; context that's purely for the
   message belongs in `WithContext`.

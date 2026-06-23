@@ -5,7 +5,7 @@ choosing how `main` reports an error, how you log a chain mid-flow, or when you
 need a project-specific format.
 
 The mental model: a **`Format<E>` strategy** is a unit type that knows how to
-write some value `E` to a `fmt::Formatter`. You rarely instantiate one — you
+write some value `E` to a `fmt::Formatter`. You rarely instantiate one; you
 name it as a type parameter (`MainResult<E, Chain>`) or hand it to a wrapper
 (`e.formatted::<Chain>()`). `Formatted<E, F>` is the wrapper whose `Display`
 runs strategy `F` over `E`.
@@ -13,7 +13,7 @@ runs strategy `F` over `E`.
 ## Returning from `main`: `MainResult`
 
 `MainResult<E, F = OneLine, T = ()>` is a drop-in `Result` for `fn main`. When
-`main` returns `Err`, the runtime prints it via `Debug` — `MainResult` arranges
+`main` returns `Err`, the runtime prints it via `Debug`, and `MainResult` arranges
 for that `Debug` print to emit `F`'s `Display`-style output instead of the raw
 derived `Debug`. `?` converts your error in automatically.
 
@@ -23,13 +23,13 @@ use std::{fs, io};
 
 #[derive(Debug, thiserror::Error)]
 enum AppError {
-    #[error("failed to load config")]
+    #[error("Failed to load config")]
     Config(#[source] ConfigError),
 }
 
 #[derive(Debug, thiserror::Error)]
 enum ConfigError {
-    #[error("failed to read file")]
+    #[error("Failed to read file")]
     Read(#[source] io::Error),
 }
 
@@ -42,18 +42,18 @@ fn main() -> MainResult<AppError> {
 ```
 
 ```text
-Error: failed to load config: failed to read file: No such file or directory (os error 2)
+Error: Failed to load config: Failed to read file: No such file or directory (os error 2)
 ```
 
-Swap the strategy with the second type parameter — no call sites change:
+Swap the strategy with the second type parameter; no call sites change:
 
 ```rust
-fn main() -> errortools::MainResult<AppError, errortools::Chain> { /* … */ }
+fn main() -> errortools::MainResult<AppError, errortools::Chain> { /* ... */ }
 ```
 
 ```text
-Error: failed to load config
-└─ failed to read file
+Error: Failed to load config
+└─ Failed to read file
    └─ No such file or directory (os error 2)
 ```
 
@@ -63,14 +63,14 @@ The third parameter `T` is the success type (default `()`). Return an
 ```rust
 use std::process::ExitCode;
 fn main() -> errortools::MainResult<AppError, errortools::OneLine, ExitCode> {
-    // … on success:
+    // ... on success:
     Ok(ExitCode::SUCCESS)
 }
 ```
 
 ## Logging mid-flow: `FormatError`
 
-When you cannot return — inside a `tokio::spawn`, an event loop, a retry — the
+When you cannot return (inside a `tokio::spawn`, an event loop, a retry), the
 `FormatError` extension trait renders any `&dyn Error` on the spot. Never walk
 `source()` by hand.
 
@@ -89,7 +89,7 @@ if let Err(e) = do_thing() {
 |---|---|---|
 | `.one_line()` | `OneLine` | error + sources joined by `": "` |
 | `.chain()` | `Chain` | indented source-chain ladder (`└─`) |
-| `.suggestion()` | `Suggestion` | top-level "did you mean…" hint (needs `Suggest`) — see `suggestions.md` |
+| `.suggestion()` | `Suggestion` | top-level "did you mean..." hint (needs `Suggest`); see `suggestions.md` |
 | `.formatted::<F>()` | any `F` | render with an arbitrary strategy |
 
 Pick a strategy inline:
@@ -109,7 +109,7 @@ if let Err(e) = do_thing() {
 
 | Strategy | Shape | Glyphs |
 |---|---|---|
-| `OneLine` | `outer: middle: inner` | — |
+| `OneLine` | `outer: middle: inner` | -- |
 | `Chain<C = Unicode>` | indented ladder, one source per line | `└─ ` + `   ` (Unicode) |
 
 `Chain` is parameterised by a `Connectors` glyph set. Use `Ascii` where Unicode
@@ -131,7 +131,7 @@ implement both, so `Chain<Ascii>` and `Tree<Ascii>` look consistent.
 
 Implement `Format<E>` on a unit type. The trait imposes **no bound** on `E`
 (`Format<E: ?Sized>`); a strategy that walks the source chain declares
-`E: Error` itself. Walk the chain with `chain(&error)` — never call `source()`
+`E: Error` itself. Walk the chain with `chain(&error)`; never call `source()`
 by hand.
 
 ```rust
@@ -148,7 +148,7 @@ impl<E: Error + ?Sized> Format<E> for Arrow {
     }
 }
 
-// fn main() -> MainResult<MyError, Arrow> { … }
+// fn main() -> MainResult<MyError, Arrow> { ... }
 println!("{}", my_error.formatted::<Arrow>()); // outer -> middle -> inner
 ```
 
@@ -165,12 +165,12 @@ fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 ```
 
 Define a custom strategy once per project and reuse it everywhere via the type
-parameter — there is one place to change the house style.
+parameter, so there is one place to change the house style.
 
 ## Composing strategies: `Add` + separators
 
 `Add<L, R>` runs two strategies against the same value, left then right. There
-is no implicit separator — drop a separator strategy in the middle, or use the
+is no implicit separator; drop a separator strategy in the middle, or use the
 `WithSep<L, Sep, R>` alias so the separator reads in order:
 
 ```rust
@@ -194,7 +194,7 @@ eprintln!("{}", Formatted::<_, Brief>::new(err));
 
 Bounds compose automatically: `Add<OneLine, Suggestion>` only implements
 `Format<E>` when `E: Error + Suggest`, because `Suggestion`'s own impl carries
-the `Suggest` bound. `Add` writes both sides unconditionally — if `R` produces
+the `Suggest` bound. `Add` writes both sides unconditionally; if `R` produces
 nothing (a `Suggestion` variant with no hint), the separator is still written.
 
 This same combinator powers defaults elsewhere: `WithContext`'s `Colon` is
@@ -204,9 +204,9 @@ This same combinator powers defaults elsewhere: `WithContext`'s `Colon` is
 
 | Context | Strategy |
 |---|---|
-| CLI tools, default | `OneLine` — single greppable line |
+| CLI tools, default | `OneLine`, single greppable line |
 | Interactive terminals, deep chains | `Chain` (or `Chain<Ascii>`) |
-| Structured logs (JSON, OTel) | `OneLine` — one log line per error |
+| Structured logs (JSON, OTel) | `OneLine`, one log line per error |
 | Aggregate of many failures | `Tree` / `List` / `Bullets` / `Joined` (see `many-errors.md`) |
 | Error + fix hint | `WithNewLine<OneLine, Suggestion>` (see `suggestions.md`) |
 | Project house style | a custom `Format` impl, applied uniformly |
