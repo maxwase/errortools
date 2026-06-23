@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "errortools-marketplace",
+  "owner": {
+    "name": "Max Wase",
+    "email": "max.vvase@gmail.com"
+  },
+  "description": "Marketplace distributing the errortools Rust error-handling skill",
+  "plugins": [
+    {
+      "name": "rust-error-handling",
+      "source": "./plugins/errortools",
+      "description": "Rust error-handling guidance built around the errortools and thiserror crates — error-type design, MainResult, context tagging, aggregation, and custom formatting"
+    }
+  ]
+}

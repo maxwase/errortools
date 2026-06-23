@@ -32,7 +32,7 @@ use std::{fs, io};
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
-    #[error("failed to load config")]
+    #[error("Failed to load config")]
     Config(#[source] io::Error),
 }
 
@@ -45,7 +45,7 @@ fn main() -> MainResult<Error> {
 Output:
 
 ```text
-Error: failed to load config: No such file or directory (os error 2)
+Error: Failed to load config: No such file or directory (os error 2)
 ```
 
 The error and its full source chain print joined with `": "`. No `run()` wrapper, no manual loop.
@@ -60,7 +60,7 @@ use std::{fs, io};
 
 #[derive(Debug, thiserror::Error)]
 enum AppError {
-    #[error("failed to load config")]
+    #[error("Failed to load config")]
     Config(#[source] io::Error),
 }
 
@@ -71,7 +71,7 @@ fn main() -> MainResult<AppError, Chain> {
 ```
 
 ```text
-Error: failed to load config
+Error: Failed to load config
 └─ No such file or directory (os error 2)
 ```
 
@@ -87,7 +87,7 @@ use errortools::{MainResult, WithContext, with_context::WithPath};
 use std::{fs::File, io, path::Path};
 
 #[derive(Debug, thiserror::Error)]
-#[error("failed to create file")]
+#[error("Failed to create file")]
 struct Error(#[from] WithPath<&'static Path, io::Error>);
 
 fn main() -> MainResult<Error> {
@@ -98,7 +98,7 @@ fn main() -> MainResult<Error> {
 ```
 
 ```text
-Error: failed to create file: no/such/dir/foo.txt: No such file or directory (os error 2)
+Error: Failed to create file: no/such/dir/foo.txt: No such file or directory (os error 2)
 ```
 
 Retry attempt numbers fit too. The default `Colon` strategy takes any
@@ -129,7 +129,7 @@ so there are two ways to customize it:
    `Format` tag.
 2. **Write a one-shot impl** when the layout is unusual:
    `impl<C: Display, E: Display, F> Format<WithContext<C, E, F>> for MyFmt { ... }`.
-   You declare your own bounds — `Colon` asks for `Display`, `PathColon` asks
+   You declare your own bounds -- `Colon` asks for `Display`, `PathColon` asks
    for `AsRef<Path>`, you ask for whatever you need.
 
 ## But why?
@@ -201,8 +201,8 @@ type Brief = WithSep<OneLine, NewLine, Suggestion>;
 eprintln!("{}", Formatted::<_, Brief>::new(err));
 ```
 
-For the common separators there are zero-think aliases — `WithSpace<L, R>`,
-`WithNewLine<L, R>`, `WithColonSpace<L, R>` — all in `errortools::separator`:
+For the common separators there are zero-think aliases -- `WithSpace<L, R>`,
+`WithNewLine<L, R>`, `WithColonSpace<L, R>` -- all in `errortools::separator`:
 
 ```rust,ignore
 use errortools::{Formatted, OneLine, Suggestion, separator::WithNewLine};
@@ -214,7 +214,7 @@ eprintln!("{}", Formatted::<_, Brief>::new(err));
 Bounds compose: `Add<OneLine, Suggestion>` only implements `Format<E>` when
 `E: Error + Suggest`, because `Suggestion`'s impl carries that bound.
 
-The same combinator powers the `WithContext` default — `Colon` is just a type
+The same combinator powers the `WithContext` default -- `Colon` is just a type
 alias for `WithColonSpace<ContextField, ErrorField>`, where
 `ContextField`/`ErrorField` are extractor strategies that read the pair's
 fields. To get a different delimiter, swap one piece:
@@ -229,7 +229,7 @@ assert_eq!(w.to_string(), "step boom");
 
 ## Suggestions
 
-For "Did you mean…" hints, implement `Suggest` on your error type and call
+For "Did you mean..." hints, implement `Suggest` on your error type and call
 `error.suggestion()`:
 
 ```rust,ignore
@@ -264,7 +264,7 @@ The idea is that every error that is supposed to have a suggestion should implem
 
 ## Many errors at once
 
-Some operations shouldn't stop at the first failure — validating a config, deploying to every region, parsing a batch. You want all of them, grouped and readable. That's `ManyErrors<C, E>`: a context-tagged collection you can render as a tree, list, or single line.
+Some operations shouldn't stop at the first failure -- validating a config, deploying to every region, parsing a batch. You want all of them, grouped and readable. That's `ManyErrors<C, E>`: a context-tagged collection you can render as a tree, list, or single line.
 
 ```rust,ignore
 use errortools::ManyErrors;
@@ -276,7 +276,7 @@ errs.push("us-east-1", RegionError::Refused);
 errs.into_result(())?; // Ok if empty, Err(ManyErrors) otherwise
 ```
 
-It costs nothing until it has to: `None` while empty, one inline slot for the first error, a `Vec` only once a second arrives. You can also collect straight from an iterator of `(context, error)` pairs or `WithContext` values — including itertools' `partition_result`.
+It costs nothing until it has to: `None` while empty, one inline slot for the first error, a `Vec` only once a second arrives. You can also collect straight from an iterator of `(context, error)` pairs or `WithContext` values -- including itertools' `partition_result`.
 
 Group related failures with `push_group` and the shapes nest. `tree()` gives the Unicode tree, walking each error's source chain:
 
@@ -288,13 +288,13 @@ Group related failures with `push_group` and the shapes nest. `tree()` gives the
 └─ eu-west-1: connection refused
 ```
 
-The default `Display` (`{errs}`) is deliberately a shallow one-line *summary* — each error's own text, no source chains — so it's safe to embed in a message or log, following the Rust convention that an error's `Display` is its own message:
+The default `Display` (`{errs}`) is deliberately a shallow one-line *summary* -- each error's own text, no source chains -- so it's safe to embed in a message or log, following the Rust convention that an error's `Display` is its own message:
 
 ```text
 2 errors: us-east-1 (2 errors: i-0a1: connection refused; i-0b2: connection refused); eu-west-1: connection refused
 ```
 
-For the full picture, the shapes are inherent helpers, no turbofish — `tree()` and `joined()` walk the source chains, `list()` and `bullets()` too:
+For the full picture, the shapes are inherent helpers, no turbofish -- `tree()` and `joined()` walk the source chains, `list()` and `bullets()` too:
 
 ```rust,ignore
 println!("{}", errs.tree());      // Unicode tree (above)
@@ -303,11 +303,11 @@ println!("{}", errs.bullets());   // • bulleted
 println!("{}", errs.joined());    // ;-separated one line, parens around groups
 ```
 
-For full control — ASCII connectors, no count header — go through `formatted`: `errs.formatted::<Tree<Ascii, false>>()`. That's an inherent method, not the `FormatError` one, and the difference matters: the trait version requires `ManyErrors: Error`, which drags `Debug` bounds onto your context types. The inherent one has no bounds at all. Wrapping always compiles; whether the combination can print is decided by the strategy's own `Format` bounds, at the call site that actually prints.
+For full control -- ASCII connectors, no count header -- go through `formatted`: `errs.formatted::<Tree<Ascii, false>>()`. That's an inherent method, not the `FormatError` one, and the difference matters: the trait version requires `ManyErrors: Error`, which drags `Debug` bounds onto your context types. The inherent one has no bounds at all. Wrapping always compiles; whether the combination can print is decided by the strategy's own `Format` bounds, at the call site that actually prints.
 
 The same rule runs through the whole rendering path: no shape demands anything from a context directly. Leaves print through the leaf strategy, group labels through the label strategy, and those decide the bounds. A `PathBuf` context with `PathColon` renders in every shape even though `PathBuf` has no `Display`.
 
-Need a shape of your own? Implement `Format<ManyErrors<…>>` and match on the public `ManyErrors` / `Node` variants. The same helpers the built-in shapes use are public so your output stays consistent: `many_errors::strategy::{ErrorCount, LeafChain, NO_ERRORS}`, `indent::indented` for re-indenting multiline content, and the `impl_ref_format!` macro for the `&T` trampoline. See the `many_errors::strategy` module docs for a worked example.
+Need a shape of your own? Implement `Format<ManyErrors<...>>` and match on the public `ManyErrors` / `Node` variants. The same helpers the built-in shapes use are public so your output stays consistent: `many_errors::strategy::{ErrorCount, LeafChain, NO_ERRORS}`, `indent::indented` for re-indenting multiline content, and the `impl_ref_format!` macro for the `&T` trampoline. See the `many_errors::strategy` module docs for a worked example.
 
 Group labels can differ from leaf contexts via the third parameter, `ManyErrors<C, E, GC>`, but `GC` defaults to `C`, so the common case stays two params.
 
@@ -324,7 +324,7 @@ for node in &errs {
 }
 ```
 
-One footgun to know about: `errs.one_line()` and `errs.chain()` compile (a `ManyErrors` is an error) but print the shallow summary, because `source()` is `None` — an aggregate has no single linear cause. `joined()` and `tree()` are the deep versions. Same logic applies in reverse: a `ManyErrors` buried in another error's `#[source]` chain shows up as one summary line. If you want its branches rendered, lift it into `push_group` instead.
+One footgun to know about: `errs.one_line()` and `errs.chain()` compile (a `ManyErrors` is an error) but print the shallow summary, because `source()` is `None` -- an aggregate has no single linear cause. `joined()` and `tree()` are the deep versions. Same logic applies in reverse: a `ManyErrors` buried in another error's `#[source]` chain shows up as one summary line. If you want its branches rendered, lift it into `push_group` instead.
 
 ## How it works
 

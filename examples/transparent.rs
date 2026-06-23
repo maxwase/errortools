@@ -9,7 +9,7 @@
 //! Output:
 //!
 //! ```text
-//! Error: failed to load config: failed to read file: missing
+//! Error: Failed to load config: Failed to read file: missing
 //! ```
 //!
 //! Note `Io` does not appear in the chain — the `transparent` variant is
@@ -27,13 +27,13 @@ enum AppError {
 
 #[derive(Debug, thiserror::Error)]
 enum ConfigError {
-    #[error("failed to load config")]
+    #[error("Failed to load config")]
     Load(#[source] FileError),
 }
 
 #[derive(Debug, thiserror::Error)]
 enum FileError {
-    #[error("failed to read file")]
+    #[error("Failed to read file")]
     Read(#[source] io::Error),
 }
 

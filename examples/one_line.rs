@@ -5,7 +5,7 @@
 //! Output:
 //!
 //! ```text
-//! Error: failed to load config: failed to read file: No such file or directory (os error 2)
+//! Error: Failed to load config: Failed to read file: No such file or directory (os error 2)
 //! ```
 
 use std::{fs, io};
@@ -14,13 +14,13 @@ use errortools::MainResult;
 
 #[derive(Debug, thiserror::Error)]
 enum AppError {
-    #[error("failed to load config")]
+    #[error("Failed to load config")]
     Config(#[source] ConfigError),
 }
 
 #[derive(Debug, thiserror::Error)]
 enum ConfigError {
-    #[error("failed to read file")]
+    #[error("Failed to read file")]
     Read(#[source] io::Error),
 }
 
