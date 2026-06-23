@@ -10,7 +10,7 @@
     {
       "name": "rust-error-handling",
       "source": "./plugins/errortools",
-      "description": "Rust error-handling guidance built around errortools and thiserror crates"
+      "description": "Rust error-handling guidance built around the errortools and thiserror crates — error-type design, MainResult, context tagging, aggregation, and custom formatting"
     }
   ]
 }
