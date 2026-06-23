@@ -90,19 +90,18 @@ TokioJoin(&'static str),
 
 **7.** For incidental context that callers will never match on (a file path, a
 retry count, a record ID), prefer `WithContext` / `WithPath` over inventing a
-single-variant wrapper. See `using-errortools` for details.
+single-variant wrapper. Basic usage and rendering live in `using-errortools` →
+"Attaching incidental context" and `references/with-context.md`; the design rule
+below covers the case those don't -- needing a named variant *and* a path.
 
 ```rust
 // BAD -- wrapper variant exists only to attach a path
 #[error("IO at {path}")]
 IoAt { path: PathBuf, #[source] source: io::Error },
 
-// GOOD -- no variant: WithPath carries the path and renders it in the chain
-File::create(&path).map_err(|e| WithPath::new(path, e))?;
-
 // GOOD -- need a named variant (callers match on the operation)? Hold the
-// WithPath and keep the path OUT of the message. WithPath<C, E> takes the
-// path type AND the error, and renders "<path>: <io error>" in the chain.
+// WithPath<C, E> (path type AND error) and keep the path OUT of the message;
+// it renders "<path>: <io error>" in the chain.
 enum Error {
     #[error("IO error")]
     IoAt(#[source] WithPath<PathBuf, io::Error>),
@@ -217,24 +216,13 @@ let cfg = load().map_err(config::Error::Load)?;
 ## Batch operations
 
 **14.** Do not silently skip failed items unless the API contract says so. Either
-fail fast or collect per-item errors with `ManyErrors` (see `using-errortools`).
+fail fast or collect per-item errors with `ManyErrors`. The canonical
+`ManyErrors` pattern (push vs `collect`, `into_result`, render shapes) lives in
+`using-errortools` → "Collecting batch failures" and `references/many-errors.md`.
 
 ```rust
 // BAD -- failures vanish
 for item in items { let _ = process(item); }
-
-// GOOD
-let mut errs = ManyErrors::new();
-for item in &items {
-    if let Err(e) = process(item) { errs.push(item.id, e); }
-}
-errs.into_result(())?;
-
-// BEST
-items.into_iter()
-    .map(|item| process(item).map_err(|e| (item.id, e)))
-    .collect::<ManyErrors<_, _>>()
-    .into_result(())?;
 ```
 
 ## `anyhow` / `Box<dyn Error>`
@@ -246,7 +234,9 @@ temporary scripts. If the project currently uses `anyhow`, see
 
 ## Tests
 
-**16.** Assert the exact error variant, not just `.is_err()`.
+**16.** Assert the exact error variant, not just `.is_err()`. Once a variant is
+worth matching, the unhappy path is worth testing: cover the error cases, not
+only the happy path.
 
 ```rust
 // BAD

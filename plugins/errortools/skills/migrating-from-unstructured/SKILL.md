@@ -74,6 +74,9 @@ fs::read_to_string(path).map_err(Error::ReadConfig)?
 fs::read_to_string(path).map_err(|e| WithPath::new(path, e))?
 ```
 
+For `WithContext` / `WithPath` usage and rendering, see `using-errortools` →
+"Attaching incidental context" and `references/with-context.md`.
+
 **Step 4: Replace `bail!` / `ensure!`.**
 
 ```rust
@@ -96,8 +99,11 @@ fn main() -> errortools::MainResult<Error> { ... }
 ```
 
 **Step 6: Leave unstructured error handling in tests.** Tests may keep it as a
-convenience return type. That is the one acceptable exception. This includes panics as well.
-One note: The tests **MUST** match the exact error variant or message, not `assert!(res.is_err())`.
+convenience return type, panics included -- that is the one acceptable exception.
+Asserting still has rules, though: tests **MUST** match the exact error variant
+or message, not `assert!(res.is_err())`, and once a variant is matched the
+unhappy path **MUST** be tested too, not just the happy path. See
+`structured-error-handling` → "Tests".
 
 ---
 
@@ -199,27 +205,12 @@ let key = "key";
 let val = map.get(key).ok_or(Error::MissingKey(key))?;
 ```
 
-**Step 6: Replace silent skips in loops.**
+**Step 6: Replace silent skips in loops.** A `let _ = process(item)` in a loop
+swallows failures. Collect them with `ManyErrors` instead -- the canonical
+push/`collect`/`into_result` pattern and the nesting/render options live in
+`using-errortools` → "Collecting batch failures" and `references/many-errors.md`.
 
 ```rust
-// BAD
-for item in items {
-    let _ = process(item);  // failures vanish
-}
-
-// GOOD
-let mut errs = ManyErrors::new();
-for item in items {
-    if let Err(e) = process(item) { errs.push(item.id, e); }
-}
-errs.into_result(())?;
-
-// BEST
-items.into_iter()
-    .map(|item| process(item).map_err(|e| (item.id, e)))
-    .collect::<ManyErrors<_, _>>()
-    .into_result(())?;
+// BAD -- failures vanish
+for item in items { let _ = process(item); }
 ```
-
-See `using-errortools` → `references/many-errors.md` for nesting and rendering
-options.

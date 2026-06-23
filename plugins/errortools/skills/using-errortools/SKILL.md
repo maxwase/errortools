@@ -53,18 +53,18 @@ typed return. `MainResult` renders the chain via `Display`, so `Debug` never
 reaches stderr.
 
 ```rust
-use errortools::MainResult;
+use errortools::{MainResult, with_context::WithPath};
 use std::{fs, io};
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("Failed to load config")]
-    Config(#[source] WithPath<io::Error>),
+    Config(#[source] WithPath<&'static str, io::Error>),
 }
 
 fn main() -> MainResult<Error> {
     let config_path = "missing.toml";
-    fs::read_to_string(&config_path).map_err(|e| Error::Config(WithPath::new(config_path, e)))?;
+    fs::read_to_string(config_path).map_err(|e| Error::Config(WithPath::new(config_path, e)))?;
     Ok(())
 }
 ```
