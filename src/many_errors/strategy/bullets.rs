@@ -95,4 +95,20 @@ mod tests {
         outer.push_group("g", ManyErrors::new());
         assert_eq!(outer.bullets().to_string(), "g: no errors");
     }
+
+    /// A single-child sub-group recurses inline after `": "` (no bullet for the
+    /// lone child), keeping the same content column.
+    #[test]
+    fn test_bullets_single_child_group_inline() {
+        let mut inner = ManyErrors::<&str, Inner>::new();
+        inner.push("x", Inner::A);
+        let mut outer = ManyErrors::<&str, Inner>::new();
+        outer.push("leaf", Inner::A);
+        outer.push_group("region", inner);
+
+        assert_eq!(
+            outer.bullets().to_string(),
+            "2 errors:\n  • leaf: InnerA\n  • region: x: InnerA"
+        );
+    }
 }

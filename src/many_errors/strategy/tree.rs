@@ -244,6 +244,19 @@ mod tests {
         assert_eq!(e.tree().to_string(), "no errors");
     }
 
+    /// `Debug` surfaces the connector set and the header flag.
+    #[test]
+    fn test_tree_debug() {
+        assert_eq!(
+            format!("{:?}", Tree::<Unicode, true>::default()),
+            "Tree { connectors: Unicode, header: true }"
+        );
+        assert_eq!(
+            format!("{:?}", Tree::<Ascii, false>::default()),
+            "Tree { connectors: Ascii, header: false }"
+        );
+    }
+
     #[test]
     fn test_tree_empty_group() {
         let mut outer = ManyErrors::<&str, Inner>::new();

@@ -460,6 +460,45 @@ mod tests {
         assert!(e.source().is_none());
     }
 
+    // --- Debug (custom: `None` bare, `One(..)` tuple, `Many` bare list) ---
+
+    #[test]
+    fn test_debug_none() {
+        let e = ManyErrors::<&str, Inner>::new();
+        assert_eq!(format!("{e:?}"), "None");
+    }
+
+    #[test]
+    fn test_debug_one_is_tuple() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("ctx", Inner::A);
+        assert_eq!(
+            format!("{e:?}"),
+            r#"One(Leaf(WithContext { context: "ctx", error: A, .. }))"#
+        );
+    }
+
+    #[test]
+    fn test_debug_many_is_bare_list() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("a", Inner::A);
+        e.push("b", Inner::B);
+        // Bare list, not a `Many(..)` tuple wrapper.
+        assert_eq!(
+            format!("{e:?}"),
+            r#"[Leaf(WithContext { context: "a", error: A, .. }), Leaf(WithContext { context: "b", error: B, .. })]"#
+        );
+    }
+
+    // --- with_formats ---
+
+    #[test]
+    fn test_with_formats_none_stays_none() {
+        let e = ManyErrors::<&str, Inner>::new();
+        let swapped: ManyErrors<&str, Inner, &str, crate::tests::WcArrow> = e.with_formats();
+        assert!(matches!(swapped, ManyErrors::None));
+    }
+
     // --- Display (Summary: shallow, single-line, no source chains) ---
 
     #[test]

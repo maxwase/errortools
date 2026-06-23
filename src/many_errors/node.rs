@@ -250,6 +250,16 @@ mod tests {
         assert_eq!(node.as_leaf().unwrap().context, "ctx");
     }
 
+    /// The accessors return `None` for the mismatched variant.
+    #[test]
+    fn test_accessor_mismatch_is_none() {
+        let leaf: N = Node::from(("ctx", Inner::A));
+        assert!(leaf.as_group().is_none());
+
+        let group: N = Node::Group(Subgroup::new("region", ManyErrors::new()));
+        assert!(group.as_leaf().is_none());
+    }
+
     #[test]
     fn test_group_context() {
         let node: N = Node::Group(Subgroup::new("region", ManyErrors::new()));
