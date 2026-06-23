@@ -16,7 +16,7 @@ use crate::{
 
 mod iter;
 mod node;
-mod strategy;
+pub mod strategy;
 
 pub use crate::connectors::{Ascii, Connectors, TreeConnectors, Unicode};
 pub use iter::{IntoIter, Iter, IterMut};

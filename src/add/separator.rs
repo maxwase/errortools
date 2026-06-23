@@ -15,7 +15,7 @@ use core::fmt;
 /// [`Format`] strategy that writes a single line feed and ignores the input.
 ///
 /// Designed as a separator term inside [`Add`], e.g.
-/// `Add<OneLine, Add<NewLine, Tree>>`.
+/// `Add<OneLine, Add<NewLine, Chain>>`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NewLine;
 

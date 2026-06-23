@@ -16,7 +16,7 @@ use derive_where::derive_where;
 mod add;
 mod chain;
 mod connectors;
-mod indent;
+pub mod indent;
 mod main_result;
 #[cfg(feature = "alloc")]
 pub mod many_errors;

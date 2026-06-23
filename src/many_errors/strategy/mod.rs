@@ -1,17 +1,68 @@
-//! Aggregate format strategies for [`ManyErrors`]: [`Tree`], [`List`], [`Bullets`], [`Joined`].
+//! Aggregate format strategies for [`ManyErrors`](crate::ManyErrors): [`Tree`], [`List`], [`Bullets`], [`Joined`].
 //!
 //! All strategies implement [`Format<ManyErrors<…>>`] (and the ref trampoline
 //! [`Format<&ManyErrors<…>>`]) so they work with both `Display` and
 //! [`Formatted`](crate::Formatted) wrappers.
 //!
 //! `Summary` is the crate-internal shallow strategy backing the default
-//! [`Display`](core::fmt::Display): own text only, no source chains.
+//! [`Display`]: own text only, no source chains.
+//!
+//! # Authoring a custom aggregate strategy
+//!
+//! A custom strategy is a unit type implementing
+//! [`Format<ManyErrors<…>>`](crate::Format). Match on the public
+//! [`ManyErrors`](crate::ManyErrors) and [`Node`](crate::Node) variants to walk
+//! the tree, and reuse the public
+//! helpers here so the output stays consistent with the built-in shapes:
+//! [`ErrorCount`] for the `"N errors"` count phrase, [`NO_ERRORS`] for the empty
+//! marker, and [`LeafChain`] to render a leaf together with its `": "`-joined
+//! source chain (without forcing a `C: Debug` bound). Re-indent any embedded
+//! newlines with [`indented`](crate::indent::indented). Pair the impl with the
+//! [`impl_ref_format!`](crate::impl_ref_format) macro to get the `&T` trampoline
+//! for free.
 //!
 //! Group headers are rendered through the group's own label strategy `GF` via
 //! `write!(f, "{w}")` (default [`AsDisplay`](crate::AsDisplay): the label's own
 //! `Display`). `GF` is a label-only [`Format<GC>`](crate::Format); the structural
 //! ` (N errors):` / `: ` and the children are added by the aggregate strategy
 //! itself, which owns all nested layout.
+//!
+//! ```
+//! use core::fmt::{self, Formatter};
+//! use errortools::{Format, ManyErrors, Node};
+//! use errortools::many_errors::strategy::{ErrorCount, LeafChain, NO_ERRORS};
+//!
+//! // A flat strategy: "<count> errors -> leaf; leaf; …", leaves only.
+//! struct Arrows;
+//! impl<C, E, GC, F, GF> Format<ManyErrors<C, E, GC, F, GF>> for Arrows
+//! where
+//!     E: core::error::Error + 'static,
+//!     F: Format<errortools::WithContext<C, E, F>>,
+//! {
+//!     fn fmt(errors: &ManyErrors<C, E, GC, F, GF>, f: &mut Formatter<'_>) -> fmt::Result {
+//!         if errors.is_empty() {
+//!             return f.write_str(NO_ERRORS);
+//!         }
+//!         write!(f, "{} ->", ErrorCount(errors.len()))?;
+//!         for (i, node) in errors.iter().enumerate() {
+//!             let sep = if i == 0 { " " } else { "; " };
+//!             if let Node::Leaf(w) = node {
+//!                 write!(f, "{sep}{}", LeafChain(w))?;
+//!             }
+//!         }
+//!         Ok(())
+//!     }
+//! }
+//! errortools::impl_ref_format!(Arrows);
+//!
+//! let mut errs = ManyErrors::<&str, std::io::Error>::new();
+//! errs.push("a.txt", std::io::Error::other("missing"));
+//! errs.push("b.txt", std::io::Error::other("denied"));
+//! assert_eq!(
+//!     errs.formatted::<Arrows>().to_string(),
+//!     "2 errors -> a.txt: missing; b.txt: denied",
+//! );
+//! ```
 
 use core::{
     error::Error,
@@ -37,6 +88,27 @@ pub use tree::Tree;
 /// [`Formatted`](crate::Formatted) without a dedicated impl per reference
 /// level. Extra generic parameters of the strategy go after the type, e.g.
 /// `impl_ref_format!(Tree<Conn, HEADER>, Conn, const HEADER: bool)`.
+///
+/// Pair this with a `Format<ManyErrors<…>>` impl when authoring a custom
+/// aggregate strategy so it works behind a reference (the form
+/// [`Formatted`](crate::Formatted) wraps).
+///
+/// # Why a per-type macro and not one blanket impl
+///
+/// The tempting `impl<S, T: ?Sized> Format<&T> for S where S: Format<T>` is
+/// rejected by coherence: [`AsDisplay`](crate::AsDisplay)'s
+/// `impl<T: Display + ?Sized> Format<T>` already matches reference types
+/// (`&U: Display` whenever `U: Display`), so `AsDisplay: Format<&U>` would be
+/// provable two ways and stable Rust cannot prove the two disjoint. Removing it
+/// would need specialization or negative bounds (neither stable).
+///
+/// This forwarding exists only because [`Formatted`](crate::Formatted) stores
+/// its value *by value* while the borrowing constructors (`tree`, `formatted`,
+/// …) hand it a `&ManyErrors`. A borrow-only `Formatted` would drop the need
+/// for all but pathological multi-reference cases — at the cost of owned
+/// wrappers. So the macro is the price of that ownership choice, not a wart to
+/// be removed by a future compiler.
+#[macro_export]
 macro_rules! impl_ref_format {
     ($strategy:ty $(, $($gen:tt)*)?) => {
         impl<T: ?Sized $(, $($gen)*)?> $crate::Format<&T> for $strategy
@@ -49,8 +121,6 @@ macro_rules! impl_ref_format {
         }
     };
 }
-
-pub(crate) use impl_ref_format;
 
 /// Emits the `Format<ManyErrors<…>>` impl and a generic `Format<&T>` ref
 /// trampoline for an aggregate strategy with no extra generic parameters.
@@ -77,20 +147,20 @@ macro_rules! impl_aggregate_format {
             }
         }
 
-        impl_ref_format!($strategy);
+        $crate::impl_ref_format!($strategy);
     };
 }
 
 pub(crate) use impl_aggregate_format;
 
 /// Rendered when an aggregate (or a group) has no children.
-pub(crate) const NO_ERRORS: &str = "no errors";
+pub const NO_ERRORS: &str = "no errors";
 
 /// `"N errors"` — the count phrase every aggregate header builds on
 /// (`"N errors:"`, `" (N errors):"`, `"N errors: "`). One definition keeps the
-/// wording identical across [`Tree`], [`List`], [`Bullets`], [`Joined`] and
-/// the default `Display`.
-pub(crate) struct ErrorCount(pub usize);
+/// wording identical across [`Tree`], [`List`], [`Bullets`], [`Joined`], the
+/// default `Display`, and any custom strategy that reuses it.
+pub struct ErrorCount(pub usize);
 
 impl Display for ErrorCount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -105,7 +175,10 @@ impl Display for ErrorCount {
 /// [`WithContext`]'s `Error::source` skips the inner error (already printed by
 /// `F`), so both walks start at the same place. Unlike `OneLine`, this does not
 /// go through `WithContext: Error`, so it imposes no `C: Debug` bound.
-pub(crate) struct LeafChain<'a, C, E, F>(pub &'a WithContext<C, E, F>);
+///
+/// Reuse this in a custom aggregate strategy to render a leaf node's
+/// [`WithContext`] pair identically to the built-in shapes.
+pub struct LeafChain<'a, C, E, F>(pub &'a WithContext<C, E, F>);
 
 impl<C, E, F> Display for LeafChain<'_, C, E, F>
 where
@@ -259,14 +332,8 @@ mod tests {
                 write!(f, "{} direct children", errors.len())
             }
         }
-        impl<T: ?Sized> Format<&T> for Count
-        where
-            Count: Format<T>,
-        {
-            fn fmt(errors: &&T, f: &mut Formatter<'_>) -> fmt::Result {
-                <Self as Format<T>>::fmt(*errors, f)
-            }
-        }
+        // The public macro supplies the `&T` ref trampoline a custom strategy needs.
+        impl_ref_format!(Count);
 
         let e = two_leaves();
         assert_eq!(e.formatted::<Count>().to_string(), "2 direct children");

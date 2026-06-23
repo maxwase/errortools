@@ -15,7 +15,7 @@ use crate::{
     with_context::WithContext,
 };
 
-use super::{ErrorCount, LeafChain, NO_ERRORS, impl_aggregate_format, impl_ref_format};
+use super::{ErrorCount, LeafChain, NO_ERRORS, impl_aggregate_format};
 
 /// Aggregate strategy that renders a [`ManyErrors`] on a single line, walking
 /// each leaf's source chain (joined with `": "`, like the per-error

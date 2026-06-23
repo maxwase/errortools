@@ -3,7 +3,7 @@
 //! No `String` allocations. The ancestry path is encoded as `levels: Vec<bool>`,
 //! one bool per ancestor depth — `true` if that ancestor was the last child,
 //! `false` otherwise. At each write the VERT/GAP prefix is reconstructed from
-//! `levels` via an itertools lazy format — O(depth) work, zero heap per line.
+//! `levels` via the lazy [`Pad`] adapter — O(depth) work, zero heap per line.
 
 use core::{
     error::Error,
@@ -15,8 +15,6 @@ use derive_where::derive_where;
 
 use alloc::vec::Vec;
 
-use itertools::Itertools;
-
 use crate::{
     Format,
     connectors::{TreeConnectors, Unicode},
@@ -24,7 +22,9 @@ use crate::{
     with_context::WithContext,
 };
 
-use super::{ErrorCount, Label, NO_ERRORS, impl_ref_format};
+use crate::impl_ref_format;
+
+use super::{ErrorCount, Label, NO_ERRORS};
 
 /// Aggregate strategy that renders a [`ManyErrors`] as a branching tree.
 ///
@@ -152,10 +152,11 @@ where
         let connector = if is_last { Conn::LAST } else { Conn::BRANCH };
         let sep = if i == 0 { pre_first } else { "\n" };
         // Reconstruct ancestor prefix lazily — no allocation.
-        let pad = levels
-            .iter()
-            .map(|&l| if l { Conn::GAP } else { Conn::VERT })
-            .format("");
+        let pad = Pad::<Conn> {
+            levels,
+            extra: 0,
+            _conn: PhantomData,
+        };
         write!(f, "{sep}{pad}{connector}")?;
         levels.push(is_last);
         draw_node::<Conn, C, GC, E, F, GF>(node, levels, f)?;

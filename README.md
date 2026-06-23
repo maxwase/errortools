@@ -307,6 +307,8 @@ For full control — ASCII connectors, no count header — go through `formatted
 
 The same rule runs through the whole rendering path: no shape demands anything from a context directly. Leaves print through the leaf strategy, group labels through the label strategy, and those decide the bounds. A `PathBuf` context with `PathColon` renders in every shape even though `PathBuf` has no `Display`.
 
+Need a shape of your own? Implement `Format<ManyErrors<…>>` and match on the public `ManyErrors` / `Node` variants. The same helpers the built-in shapes use are public so your output stays consistent: `many_errors::strategy::{ErrorCount, LeafChain, NO_ERRORS}`, `indent::indented` for re-indenting multiline content, and the `impl_ref_format!` macro for the `&T` trampoline. See the `many_errors::strategy` module docs for a worked example.
+
 Group labels can differ from leaf contexts via the third parameter, `ManyErrors<C, E, GC>`, but `GC` defaults to `C`, so the common case stays two params.
 
 A few more things it does:

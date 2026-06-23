@@ -7,8 +7,8 @@ use core::fmt;
 
 use crate::indent::Repeat;
 
+use super::impl_aggregate_format;
 use super::marked::{Marker, draw_marked_many};
-use super::{impl_aggregate_format, impl_ref_format};
 
 /// Aggregate strategy that renders a [`ManyErrors`](crate::ManyErrors) as a
 /// bulleted (`•`) list.
