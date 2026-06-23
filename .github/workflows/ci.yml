@@ -42,6 +42,7 @@ jobs:
       matrix:
         features:
           - --all-features
+          - --no-default-features --features alloc
           - --no-default-features
     steps:
       - uses: actions/checkout@v6

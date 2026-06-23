@@ -1,18 +1,18 @@
-//! `MainResult` with the [`Tree`] format.
+//! `MainResult` with the [`Chain`] format (per-error source-chain ladder).
 //!
-//! Run: `cargo run --example tree`
+//! Run: `cargo run --example chain`
 //!
 //! Output:
 //!
 //! ```text
 //! Error: failed to load config
-//! └── failed to read file
-//!     └── No such file or directory (os error 2)
+//! └─ failed to read file
+//!    └─ No such file or directory (os error 2)
 //! ```
 
 use std::{fs, io};
 
-use errortools::{MainResult, Tree};
+use errortools::{Chain, MainResult};
 
 #[derive(Debug, thiserror::Error)]
 enum AppError {
@@ -26,7 +26,7 @@ enum ConfigError {
     Read(#[source] io::Error),
 }
 
-fn main() -> MainResult<AppError, Tree> {
+fn main() -> MainResult<AppError, Chain> {
     fs::read_to_string("does-not-exist.toml")
         .map_err(ConfigError::Read)
         .map_err(AppError::Config)?;

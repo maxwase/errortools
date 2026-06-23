@@ -48,64 +48,175 @@ impl<E: Error + Suggest + ?Sized> Format<E> for Suggestion {
 
 #[cfg(test)]
 mod tests {
-    use thiserror::Error;
+    //! Tests are organized around one invariant:
+    //!
+    //! **`Suggest` is a caller-level annotation — it is never auto-delegated
+    //! through the source chain or through `#[error(transparent)]`.**
+    //!
+    //! `#[error(transparent)]` collapses `Display` and `source()`, but
+    //! `Suggest::fmt` is always dispatched on the *concrete outer type*.
+    //! Chain length, source depth, and transparent wrappers are all irrelevant.
 
-    use super::*;
-    use crate::FormatError;
+    use core::error::Error as _;
+    use std::io;
 
-    #[derive(Error, Debug)]
-    pub enum SugError {
-        #[error("env file missing")]
-        NoEnv,
-        #[error("something else")]
-        Other,
-    }
+    use crate::{
+        Add, FormatError,
+        separator::NewLine,
+        tests::{Error, Inner, Mid, NoHint},
+    };
 
-    impl Suggest for SugError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            match self {
-                Self::NoEnv => f.write_str("Did you mean rename the .env.example file to .env?"),
-                Self::Other => Ok(()),
-            }
-        }
-    }
-
-    #[derive(Error, Debug)]
-    #[error("plain")]
-    struct NoHint;
-
-    impl Suggest for NoHint {}
+    // --- baseline: hint vs no-hint ---
 
     #[test]
-    fn renders_variant_hint() {
-        let error = SugError::NoEnv;
+    fn hint_variant_renders_message() {
+        // Error::One has a hint; Error::Three has a different hint.
         assert_eq!(
-            error.suggestion().to_string(),
-            "Did you mean rename the .env.example file to .env?"
+            Error::One.suggestion().to_string(),
+            "Try passing --help to see available options.",
+        );
+        assert_eq!(
+            Error::Three(io::Error::other("x")).suggestion().to_string(),
+            "Check that the file path exists and permissions are correct.",
         );
     }
 
     #[test]
-    fn renders_empty_for_variant_without_hint() {
-        let error = SugError::Other;
-        assert_eq!(error.suggestion().to_string(), "");
+    fn no_hint_variant_renders_empty_string() {
+        assert_eq!(Error::Two(Inner::A).suggestion().to_string(), "");
+        assert_eq!(
+            Error::Transparent(Mid::Inner(Inner::A))
+                .suggestion()
+                .to_string(),
+            ""
+        );
     }
 
     #[test]
     fn default_impl_writes_nothing() {
-        let error = NoHint;
-        assert_eq!(error.suggestion().to_string(), "");
+        // NoHint uses the default impl — suggestion() must be callable and empty.
+        assert_eq!(NoHint.suggestion().to_string(), "");
     }
 
     #[test]
-    fn debug_forwards_to_inner() {
-        let error = SugError::NoEnv;
-        assert_eq!(format!("{:?}", error.suggestion()), "NoEnv");
+    fn debug_of_formatted_suggestion_surfaces_error_and_strategy() {
+        // Formatted<_, Suggestion> Debug surfaces both the inner error and the
+        // materialized strategy tag.
+        assert_eq!(
+            format!("{:?}", Error::One.suggestion()),
+            "Formatted { error: One, format: Suggestion }"
+        );
+        assert_eq!(
+            format!("{:?}", NoHint.suggestion()),
+            "Formatted { error: NoHint, format: Suggestion }"
+        );
+    }
+
+    // --- suggestion is orthogonal to Display ---
+
+    #[test]
+    fn one_line_and_suggestion_are_independent_strategies() {
+        let e = Error::One;
+        // one_line walks the source chain; suggestion ignores it.
+        assert_eq!(e.one_line().to_string(), "One");
+        assert_eq!(
+            e.suggestion().to_string(),
+            "Try passing --help to see available options.",
+        );
+        // They can be composed via Add.
+        assert_eq!(
+            e.formatted::<Add<crate::OneLine, Add<NewLine, crate::Suggestion>>>()
+                .to_string(),
+            "One\nTry passing --help to see available options.",
+        );
+    }
+
+    // --- suggestion does NOT walk the source chain ---
+
+    #[test]
+    fn suggestion_ignores_source_chain_depth() {
+        // Error::Two has a source (Inner::A); its Suggest arm returns "".
+        let with_source = Error::Two(Inner::A);
+        assert_eq!(with_source.one_line().to_string(), "Two: InnerA");
+        assert_eq!(with_source.suggestion().to_string(), "");
+
+        // Longer chain: Error::Transparent → Mid::Inner → Inner::A.
+        let with_chain = Error::Transparent(Mid::Inner(Inner::A));
+        assert_eq!(with_chain.one_line().to_string(), "mid: InnerA");
+        assert_eq!(with_chain.suggestion().to_string(), "");
     }
 
     #[test]
-    fn one_line_still_works_on_suggestion_types() {
-        let error = SugError::NoEnv;
-        assert_eq!(error.one_line().to_string(), "env file missing");
+    fn suggestion_fires_even_with_no_source() {
+        // Error::One has no source — prove chain depth is not required.
+        assert!(Error::One.source().is_none());
+        assert_ne!(Error::One.suggestion().to_string(), "");
+    }
+
+    // --- suggestion is NOT delegated through transparent ---
+
+    #[test]
+    fn transparent_collapses_display_but_not_suggestion() {
+        // Error::Transparent is #[error(transparent)] — display collapses to Mid's.
+        // But Suggest::fmt is dispatched on Error, not on Mid.
+        // Error's Transparent arm returns "".
+        let with_inner = Error::Transparent(Mid::Inner(Inner::A));
+        let with_io = Error::Transparent(Mid::Io(io::Error::other("io error")));
+
+        // Display collapsed through transparent.
+        assert_eq!(with_inner.to_string(), "mid");
+        assert_eq!(with_io.to_string(), "io error");
+
+        // Suggestion is NOT collapsed — outer type's impl always wins.
+        assert_eq!(with_inner.suggestion().to_string(), "");
+        assert_eq!(with_io.suggestion().to_string(), "");
+    }
+
+    #[test]
+    fn double_transparent_display_collapses_suggestion_stays_at_outermost() {
+        // Error::Transparent(Mid::Io(io_err)):
+        //   display = io message (two transparent layers)
+        //   source  = None (io::Error::other has none)
+        //   suggestion = "" (Error's Transparent arm, not delegated)
+        let e = Error::Transparent(Mid::Io(io::Error::other("deep io")));
+        assert_eq!(e.to_string(), "deep io");
+        assert!(e.source().is_none());
+        assert_eq!(e.suggestion().to_string(), "");
+        // one_line has no chain to walk — just the one display string.
+        assert_eq!(e.one_line().to_string(), "deep io");
+    }
+
+    #[test]
+    fn hint_and_no_hint_variants_coexist_in_same_type() {
+        // Error has both hint-bearing (One, Three) and silent (Two, Transparent) variants.
+        // The match arm in Suggest controls everything — no cross-variant leakage.
+        assert_ne!(Error::One.suggestion().to_string(), "");
+        assert_eq!(Error::Two(Inner::A).suggestion().to_string(), "");
+        assert_ne!(
+            Error::Three(io::Error::other("x")).suggestion().to_string(),
+            "",
+        );
+        assert_eq!(
+            Error::Transparent(Mid::Inner(Inner::A))
+                .suggestion()
+                .to_string(),
+            "",
+        );
+    }
+
+    // --- ref delegation: impl Suggest for &T ---
+
+    #[test]
+    fn suggest_blanket_impl_works_on_shared_ref() {
+        // impl<T: Suggest + ?Sized> Suggest for &T delegates to T.
+        let e = Error::One;
+        let r: &Error = &e;
+        // &Error: core::error::Error (via blanket) + Suggest (via blanket on &T).
+        assert_eq!(
+            r.suggestion().to_string(),
+            "Try passing --help to see available options.",
+        );
+        let no: &NoHint = &NoHint;
+        assert_eq!(no.suggestion().to_string(), "");
     }
 }

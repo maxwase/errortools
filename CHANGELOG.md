@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-05-17
+## [0.2.0] - 2026-06-23
 
 ### Added
 
@@ -16,15 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Suggest` trait for per-variant "Did you mean…" hints, and the `Suggestion` `Format` strategy that renders them. `error.suggestion()` prints the top-level hint via `Display`. Default `Suggest::fmt` writes nothing, so types only implement it for variants that have a hint.
 - `DisplayPath` wrapper in the `path_display` module — drops `&Path`/`PathBuf` into any `Display` context.
 - `T` generic on `MainResult<E, F, T = ()>` so `main` can return `ExitCode` or any `Termination` type.
-- `Add<L, R>` — type-level combinator that runs two `Format` strategies in sequence. Compose with the new `separator` module (`NewLine`, `Space`, `Empty`, `Colon`, `ColonSpace`) to build strategies like `Add<Add<OneLine, NewLine>, Suggestion>` without writing a new impl. Bounds compose automatically — using `Suggestion` in the chain still requires `E: Suggest`.
+- `Add<L, R>` — type-level combinator that runs two `Format` strategies in sequence. Compose with the new `separator` module (`NewLine`, `Space`, `Empty`, `ColonChar`, `ColonSpace`) to build strategies like `Add<Add<OneLine, NewLine>, Suggestion>` without writing a new impl. Bounds compose automatically — using `Suggestion` in the chain still requires `E: Suggest`.
 - `WithSep<L, Sep, R>` alias — sugar for `Add<Add<L, Sep>, R>` so the separator reads in the middle. Plus pre-baked variants in `separator`: `WithSpace<L, R>`, `WithNewLine<L, R>`, `WithColonSpace<L, R>`.
 - `with_context::ContextField`, `ErrorField`, and `ContextPath` (std-only) — `Format` extractor strategies that read fields of `WithContext`. Compose with separators to build custom pair strategies, e.g. `WithSep<ContextField, Space, ErrorField>` for a space-delimited pair.
+- `Chain<C>` — per-error source-chain ladder renderer (renamed from `Tree<M, I>`, see breaking changes). Uses the same [`Connectors`] glyph vocabulary as the new aggregate `Tree`.
+- `ManyErrors<C, E, GC, F, GF>` (requires `alloc`) — aggregates context-tagged errors as a rose tree. Costs nothing until needed: `None` while empty, one inline slot for the first error, a `Vec` only from the second. Implements `Error`, `Add`, `FromIterator`, and `Extend` for `Node`, `WithContext`, `(C, E)`, and `ControlFlow` pairs. `into_result(ok)` converts to `Ok`/`Err` in one call.
+- `Node<C, E, GC, F, GF>` and `Subgroup<C, E, GC, F, GF>` (requires `alloc`) — the two child variants of `ManyErrors`: leaf `WithContext` pairs and labeled sub-groups.
+- `Iter`, `IterMut`, `IntoIter` (requires `alloc`) — iterator types over the direct children of a `ManyErrors`, returned by `iter()`, `iter_mut()`, and `into_iter()`.
+- `Tree<Conn, HEADER>`, `List`, `Bullets`, `Joined` (requires `alloc`) — aggregate rendering strategies. `Tree` draws a branching Unicode tree walking each leaf's source chain. `List` renders a numbered outline. `Bullets` uses `•` markers. `Joined` serializes to a single `;`-separated line. All are available via inherent helpers (`errs.tree()`, etc.) and via `errs.formatted::<F>()` for full generic control.
 
 ### Changed
 
 - **Breaking:** `Format` is now `Format<E: ?Sized>` (the `E: Error` bound on the trait is gone). Strategies that walk the source chain still need `E: Error` and declare it themselves. The motivation: composing strategies through non-error types (e.g. `WithContext`) required dropping the trait-level `Error` bound. Existing impls keep working — the bound just moves from the trait to each impl that needs it.
 - **Breaking:** `with_context::Colon` and `with_context::PathColon` are now `type` aliases over `Add` rather than dedicated structs: `Colon = Add<Add<ContextField, ColonSpace>, ErrorField>`. The `WithContext::<_, _, Colon>` / `WithContextColon` / `WithPath` surface is unchanged; only code that named the strategies as `struct Colon;` (e.g. an explicit `impl ContextFormat for Colon`) is affected.
 - **Breaking:** `WithContext`'s `Display`, `Error`, and `with_format` bounds switched from `F: ContextFormat<C, E>` to `F: Format<WithContext<C, E, F>>`.
+- **Breaking:** `Tree<M, I>` (the 0.1.0 per-error source-chain ladder) renamed to `Chain<C>`. The type-parameter API changed: the old `Marker + Indent` pair is replaced by a single `Connectors` impl (e.g. `Chain<Ascii>`). The `Tree` name is now used for the `ManyErrors` aggregate branching renderer.
 
 ### Removed
 

@@ -17,7 +17,7 @@ fn main() {
 
     println!("one line: {}", err.one_line());
     println!();
-    println!("tree:\n{}", err.tree());
+    println!("chain:\n{}", err.chain());
 
     let dyn_err: &dyn core::error::Error = &err;
     println!();

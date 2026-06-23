@@ -7,7 +7,7 @@ use super::{Format, Formatted, OneLine};
 
 /// A result type that wraps an error with [Formatted] and [DisplaySwapDebug] to output from the `main` function.
 ///
-/// The format strategy `F` defaults to [`OneLine`]; pass [`crate::Tree`] or a custom [`Format`]
+/// The format strategy `F` defaults to [`OneLine`]; pass [`Chain`](crate::Chain) or a custom [`Format`]
 /// to change how the error is rendered when `main` returns `Err`.
 /// The success type `T` defaults to `()`; pass `ExitCode` or another type to return from `main`.
 pub type MainResult<E, F = OneLine, T = ()> =
@@ -77,27 +77,11 @@ impl<E: Error, F: Format<E>> From<E> for DisplaySwapDebug<Formatted<E, F>> {
 
 #[cfg(test)]
 mod tests {
-    use thiserror::Error as ThisError;
-
     use super::*;
-    use crate::{Suggest, separator::Space, tests::Error};
-
-    #[derive(ThisError, Debug)]
-    enum SugError {
-        #[error("env file missing")]
-        NoEnv,
-        #[error("something else")]
-        Other,
-    }
-
-    impl Suggest for SugError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            match self {
-                Self::NoEnv => f.write_str("Did you mean rename the .env.example file to .env?"),
-                Self::Other => Ok(()),
-            }
-        }
-    }
+    use crate::{
+        separator::Space,
+        tests::{Error, Inner},
+    };
 
     struct Foo;
 
@@ -127,12 +111,15 @@ mod tests {
 
     #[test]
     fn test_swap_with_formatted() {
-        let inner = Formatted::<_, OneLine>::new(Error::Two(crate::tests::ErrorInner::One));
+        let inner = Formatted::<_, OneLine>::new(Error::Two(Inner::A));
         let wrapped = DisplaySwapDebug::new(inner);
         // Debug of DisplaySwapDebug = Display of inner = OneLine chain.
-        assert_eq!(format!("{wrapped:?}"), "Two: One");
-        // Display of DisplaySwapDebug = Debug of inner = forwarded to error's Debug.
-        assert_eq!(wrapped.to_string(), "Two(One)");
+        assert_eq!(format!("{wrapped:?}"), "Two: InnerA");
+        // Display of DisplaySwapDebug = Debug of inner Formatted = error + strategy.
+        assert_eq!(
+            wrapped.to_string(),
+            "Formatted { error: Two(A), format: OneLine }"
+        );
     }
 
     #[test]
@@ -153,33 +140,33 @@ mod tests {
 
     #[test]
     fn test_with_suggestion_renders_error_then_hint() {
-        let formatted = Formatted::<_, WithSuggestion>::new(SugError::NoEnv);
+        let formatted = Formatted::<_, WithSuggestion>::new(Error::One);
         assert_eq!(
             formatted.to_string(),
-            "env file missing\nDid you mean rename the .env.example file to .env?"
+            "One\nTry passing --help to see available options."
         );
     }
 
     #[test]
     fn test_with_suggestion_empty_hint_keeps_separator() {
-        let formatted = Formatted::<_, WithSuggestion>::new(SugError::Other);
-        assert_eq!(formatted.to_string(), "something else\n");
+        let formatted = Formatted::<_, WithSuggestion>::new(Error::Two(Inner::A));
+        assert_eq!(formatted.to_string(), "Two: InnerA\n");
     }
 
     #[test]
     fn test_with_suggestion_custom_separator() {
-        let formatted = Formatted::<_, WithSuggestion<OneLine, Space>>::new(SugError::NoEnv);
+        let formatted = Formatted::<_, WithSuggestion<OneLine, Space>>::new(Error::One);
         assert_eq!(
             formatted.to_string(),
-            "env file missing Did you mean rename the .env.example file to .env?"
+            "One Try passing --help to see available options."
         );
     }
 
     #[test]
     fn test_main_result_with_suggestion_question_mark() {
-        fn run(err: bool) -> MainResultWithSuggestion<SugError> {
+        fn run(err: bool) -> MainResultWithSuggestion<Error> {
             if err {
-                Err(SugError::NoEnv)?;
+                Err(Error::One)?;
             }
             Ok(())
         }
@@ -189,20 +176,22 @@ mod tests {
         // Debug of DisplaySwapDebug forwards to inner Display = error chain + \n + hint.
         assert_eq!(
             format!("{wrapped:?}"),
-            "env file missing\nDid you mean rename the .env.example file to .env?"
+            "One\nTry passing --help to see available options."
         );
-        // Display of DisplaySwapDebug forwards to inner Debug = forwarded to the
-        // wrapped error's Debug (i.e. the original `SugError` Debug derive).
-        assert_eq!(wrapped.to_string(), "NoEnv");
+        // Display of DisplaySwapDebug = Debug of inner Formatted = error + strategy.
+        assert_eq!(
+            wrapped.to_string(),
+            "Formatted { error: One, format: Add(Add(OneLine, NewLine), Suggestion) }"
+        );
     }
 
     #[test]
     fn test_main_result_with_suggestion_exit_code() {
         use std::process::ExitCode;
 
-        fn main_with_error(err: bool) -> MainResultWithSuggestion<SugError, OneLine, ExitCode> {
+        fn main_with_error(err: bool) -> MainResultWithSuggestion<Error, OneLine, ExitCode> {
             if err {
-                Err(SugError::NoEnv)?;
+                Err(Error::One)?;
             }
             Ok(ExitCode::SUCCESS)
         }
@@ -211,7 +200,7 @@ mod tests {
         let wrapped = main_with_error(true).unwrap_err();
         assert_eq!(
             wrapped.0.to_string(),
-            "env file missing\nDid you mean rename the .env.example file to .env?"
+            "One\nTry passing --help to see available options."
         );
     }
 
