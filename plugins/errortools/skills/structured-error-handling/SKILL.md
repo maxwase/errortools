@@ -36,13 +36,26 @@ impl std::fmt::Display for MyError { /* ... */ } // hand-rolled
 impl std::error::Error for MyError { /* ... */ } // hand-rolled (or absent)
 ```
 
-**2.** Collapse single-variant enums to structs.
+**2.** Collapse single-variant enums to structs — but first check the struct
+earns its existence. If its **only** job is to staple one incidental value (an
+index, ID, key, attempt, path) onto a foreign error and no caller will `match`
+on it, don't write a struct at all: use `WithContext` / `WithPath` (rule 7).
 
 ```rust
 // BAD
 pub enum Error { ReadFile(#[source] io::Error) }
 // GOOD
 pub struct Error(#[source] io::Error);
+
+// ALSO BAD -- a struct whose only purpose is to carry the offending value
+#[derive(thiserror::Error)]
+#[error("Index {index} exceeds u16 range")]
+pub struct Error { index: u32, #[source] source: TryFromIntError }
+let id = u16::try_from(value).map_err(|source| Error { index: value, source })?;
+
+// GOOD -- tag the value onto the source; renders "<value>: <error>"
+pub type Error = errortools::WithContext<u32, TryFromIntError>;
+let id = u16::try_from(value).map_err(|source| WithContext::new(value, source))?;
 ```
 
 **3.** Use a tuple variant when wrapping a foreign error with no extra context.
@@ -53,8 +66,10 @@ pub struct Error(#[source] io::Error);
 ConfigOpen(#[source] io::Error),
 ```
 
-**4.** Use a struct variant when extra context is needed. Put context in named
-fields, never inside the message via `format!`.
+**4.** Use a struct variant when extra context is needed **and a caller will
+match on that context**. Put context in named fields, never inside the message
+via `format!`. If the context is only ever rendered (never matched), don't add a
+field — layer `WithContext` over the variant instead (rule 7).
 
 ```rust
 // BAD
@@ -89,8 +104,12 @@ TokioJoin(&'static str),
 ```
 
 **7.** For incidental context that callers will never match on (a file path, a
-retry count, a record ID), prefer `WithContext` / `WithPath` over inventing a
-single-variant wrapper. Basic usage and rendering live in `using-errortools` →
+retry count, a record ID, the offending value being converted), prefer
+`WithContext` / `WithPath` over inventing a single-variant wrapper. The trigger
+is **"will anyone branch on it?"**, never *where the value came from* — a value
+produced inside the function (e.g. the element being converted in a loop) is
+just as incidental as one passed in as a parameter. Basic usage and rendering
+live in `using-errortools` →
 "Attaching incidental context" and `references/with-context.md`; the design rule
 below covers the case those don't -- needing a named variant *and* a path.
 
@@ -225,16 +244,33 @@ fail fast or collect per-item errors with `ManyErrors`. The canonical
 for item in items { let _ = process(item); }
 ```
 
+## Large source errors
+
+**15.** Box large source errors to keep the variant size small.
+
+```rust
+// BAD -- variant is as large as the biggest source error
+#[error("Render failed")]
+Render(#[source] SomeLargeError),
+
+// GOOD
+#[error("Render failed")]
+Render(#[source] Box<SomeLargeError>),
+```
+
+`Box<E>` implements `std::error::Error` when `E: Error`, so `#[source]` chains
+through the box transparently and `OneLine` / `Chain` still walk the full chain.
+
 ## `anyhow` / `Box<dyn Error>`
 
-**15.** Avoid `anyhow` or `Box<dyn Error>` in production code or library code. Callers cannot
+**16.** Avoid `anyhow` or `Box<dyn Error>` in production code or library code. Callers cannot
 branch on variants, and the chain is opaque. Both are acceptable in tests and
 temporary scripts. If the project currently uses `anyhow`, see
 `migrating-from-unstructured`.
 
 ## Tests
 
-**16.** Assert the exact error variant, not just `.is_err()`. Once a variant is
+**17.** Assert the exact error variant, not just `.is_err()`. Once a variant is
 worth matching, the unhappy path is worth testing: cover the error cases, not
 only the happy path.
 

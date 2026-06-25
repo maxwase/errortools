@@ -175,6 +175,23 @@ items.into_iter()
 
 See `references/many-errors.md` for nesting with `push_group` and render options.
 
+Two `ManyErrors` instances can be merged with `+` (the `Add` impl). This is
+useful when parallel work produces independent error sets that need to be
+reported together.
+
+```rust
+let errs = errs_a + errs_b;
+errs.into_result(())?;
+```
+
+Merge of Results is also supported:
+
+```rust
+let result_a: Result<(), Error> = ...;
+let result_b: Result<(), Error> = ...;
+let merged: ManyErrors<_, _> = result_a + result_b;
+```
+
 ## Choosing a format strategy
 
 | Context | Strategy |
