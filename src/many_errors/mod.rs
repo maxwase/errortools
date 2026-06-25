@@ -14,6 +14,7 @@ use crate::{
     with_context::{Colon, WithContext},
 };
 
+mod add;
 mod iter;
 mod node;
 pub mod strategy;
@@ -180,6 +181,44 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
         self.push_node(Node::Leaf(WithContext::new(context, error)));
     }
 
+    /// Appends a leaf error with context if `option` is `Some`; no-op on `None`.
+    ///
+    /// # Example
+    /// ```
+    /// use errortools::ManyErrors;
+    ///
+    /// let mut errs = ManyErrors::<&str, std::io::Error>::new();
+    /// errs.push_some("step 1", None);
+    /// assert!(errs.is_empty());
+    /// errs.push_some("step 2", Some(std::io::Error::other("fail")));
+    /// assert_eq!(errs.len(), 1);
+    /// ```
+    pub fn push_some(&mut self, context: C, option: Option<E>) {
+        if let Some(error) = option {
+            self.push(context, error);
+        }
+    }
+
+    /// Appends a leaf error if `result` is `Err`; no-op on `Ok`.
+    ///
+    /// Named version of `*self += (context, result)` for discoverability.
+    ///
+    /// # Example
+    /// ```
+    /// use errortools::ManyErrors;
+    ///
+    /// let mut errs = ManyErrors::<&str, std::io::Error>::new();
+    /// errs.push_result("step 1", Ok::<(), _>(()));
+    /// assert!(errs.is_empty());
+    /// errs.push_result("step 2", Err(std::io::Error::other("fail")));
+    /// assert_eq!(errs.len(), 1);
+    /// ```
+    pub fn push_result<T>(&mut self, context: C, result: Result<T, E>) {
+        if let Err(error) = result {
+            self.push(context, error);
+        }
+    }
+
     /// Appends a named sub-group of errors.
     ///
     /// # Example
@@ -196,6 +235,28 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// ```
     pub fn push_group(&mut self, context: GC, errors: Self) {
         self.push_node(Node::Group(Subgroup::new(context, errors)));
+    }
+
+    /// Wraps `self` as a named sub-group inside a fresh `ManyErrors`.
+    ///
+    /// Builder-style complement to [`push_group`](Self::push_group): instead of
+    /// attaching a child to an existing parent, this creates the parent and
+    /// returns it.  Empty `self` produces a group with zero leaves.
+    ///
+    /// # Example
+    /// ```
+    /// use errortools::ManyErrors;
+    ///
+    /// let mut inner = ManyErrors::<&str, std::io::Error>::new();
+    /// inner.push("a", std::io::Error::other("x"));
+    ///
+    /// let outer = inner.into_group("region");
+    /// assert_eq!(outer.len(), 1); // one group node
+    /// ```
+    pub fn into_group(self, context: GC) -> Self {
+        let mut outer = Self::None;
+        outer.push_group(context, self);
+        outer
     }
 
     /// Appends a child [`Node`] directly, promoting `None → One → Many`.
@@ -229,6 +290,93 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
             Self::None => Ok(ok),
             _ => Err(self),
         }
+    }
+
+    /// Returns `Some(())` if no errors were recorded, `None` otherwise.
+    ///
+    /// Mirrors [`Result::ok`]: discards the errors and signals whether the
+    /// operation succeeded. For the inverse (keeping the errors) use
+    /// [`err`](Self::err); to turn into a `Result` with a success value use
+    /// [`into_result`](Self::into_result).
+    ///
+    /// # Example
+    /// ```
+    /// use errortools::ManyErrors;
+    ///
+    /// let ok = ManyErrors::<&str, std::io::Error>::new();
+    /// assert_eq!(ok.ok(), Some(()));
+    ///
+    /// let mut errs = ManyErrors::<&str, std::io::Error>::new();
+    /// errs.push("step", std::io::Error::other("fail"));
+    /// assert_eq!(errs.ok(), None);
+    /// ```
+    pub fn ok(self) -> Option<()> {
+        matches!(self, Self::None).then_some(())
+    }
+
+    /// Returns `Some(self)` if errors were recorded, `None` if empty.
+    ///
+    /// Mirrors [`Result::err`]: preserves the errors and discards the success
+    /// signal. Useful when you want to handle errors only when present, without
+    /// needing a success value (compare [`into_result`](Self::into_result)).
+    ///
+    /// # Example
+    /// ```
+    /// use errortools::ManyErrors;
+    ///
+    /// let ok = ManyErrors::<&str, std::io::Error>::new();
+    /// assert!(ok.err().is_none());
+    ///
+    /// let mut errs = ManyErrors::<&str, std::io::Error>::new();
+    /// errs.push("step", std::io::Error::other("fail"));
+    /// assert!(errs.err().is_some());
+    /// ```
+    pub fn err(self) -> Option<Self> {
+        match self {
+            Self::None => None,
+            other => Some(other),
+        }
+    }
+
+    /// Transforms every leaf error by applying `f`, returning a new
+    /// `ManyErrors` with the same context and group structure.
+    ///
+    /// Mirrors [`Result::map_err`]. Format strategies are reset to defaults
+    /// for the new error type. Group contexts (`GC`) are left unchanged; to
+    /// map those, use [`map_context`](Self::map_context) after (or before) this.
+    ///
+    /// # Example
+    /// ```
+    /// use errortools::ManyErrors;
+    ///
+    /// let mut errs = ManyErrors::<&str, i32>::new();
+    /// errs.push("a", 1);
+    /// errs.push("b", 2);
+    /// let mapped = errs.map_err(|n| n.to_string());
+    /// assert_eq!(mapped.len(), 2);
+    /// ```
+    pub fn map_err<E2>(self, mut f: impl FnMut(E) -> E2) -> ManyErrors<C, E2, GC> {
+        map_err_many(self, &mut f)
+    }
+
+    /// Transforms every leaf context by applying `f`, returning a new
+    /// `ManyErrors` with the same error and group-context structure.
+    ///
+    /// Mirrors [`Result::map`] (the "non-error" half of the pair). Only leaf
+    /// contexts (`C`) are mapped; group labels (`GC`) are unchanged. Format
+    /// strategies are reset to defaults for the new context type.
+    ///
+    /// # Example
+    /// ```
+    /// use errortools::ManyErrors;
+    ///
+    /// let mut errs = ManyErrors::<&str, std::io::Error>::new();
+    /// errs.push("config", std::io::Error::other("missing"));
+    /// let mapped = errs.map_context(|ctx| format!("step:{ctx}"));
+    /// assert_eq!(mapped.len(), 1);
+    /// ```
+    pub fn map_context<C2>(self, mut f: impl FnMut(C) -> C2) -> ManyErrors<C2, E, GC> {
+        map_context_many(self, &mut f)
     }
 
     /// Switches the leaf strategy `F` and group-label strategy `GF` without
@@ -268,7 +416,25 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
         crate::Formatted::new(self)
     }
 
+    /// Renders on a single line: `;`-separated siblings, parens around groups,
+    /// walking each leaf's source chain.
+    ///
+    /// # Shadowing [`FormatError::one_line`](crate::FormatError::one_line)
+    ///
+    /// The trait method uses [`OneLine`](crate::OneLine), which walks
+    /// [`Error::source`] — but `ManyErrors::source` is always `None`, so it
+    /// would only emit the shallow [`Display`] summary. This inherent method
+    /// wins at the call site and produces a meaningful aggregate rendering
+    /// instead. The trait method remains reachable as
+    /// `FormatError::one_line(&errs)` if the `OneLine` behavior is needed.
+    pub fn one_line(&self) -> crate::Formatted<&Self, Joined> {
+        crate::Formatted::new(self)
+    }
+
     /// Renders on a single line: `;`-separated siblings, parens around groups.
+    ///
+    /// Alias for [`one_line`](Self::one_line); prefer that name for
+    /// consistency with [`FormatError`](crate::FormatError).
     pub fn joined(&self) -> crate::Formatted<&Self, Joined> {
         crate::Formatted::new(self)
     }
@@ -338,6 +504,79 @@ where
     /// outer `ManyErrors` instead of chaining it as a source.
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         None
+    }
+}
+
+// --- map_err / map_context helpers ---
+// Free functions so Subgroup (in node.rs) does not need access to a private
+// method on ManyErrors; WithContext and Subgroup fields are all `pub`.
+
+fn map_err_node<C, E, GC, F, GF, E2>(
+    node: Node<C, E, GC, F, GF>,
+    f: &mut impl FnMut(E) -> E2,
+) -> Node<C, E2, GC> {
+    match node {
+        Node::Leaf(w) => Node::Leaf(WithContext::new(w.context, f(w.error))),
+        Node::Group(g) => Node::Group(Subgroup::new(g.context, map_err_many(*g.errors, f))),
+    }
+}
+
+fn map_err_many<C, E, GC, F, GF, E2>(
+    me: ManyErrors<C, E, GC, F, GF>,
+    f: &mut impl FnMut(E) -> E2,
+) -> ManyErrors<C, E2, GC> {
+    match me {
+        ManyErrors::None => ManyErrors::None,
+        ManyErrors::One(n) => ManyErrors::One(map_err_node(n, f)),
+        ManyErrors::Many(v) => {
+            let mut out = Vec::with_capacity(v.len());
+            for n in v {
+                out.push(map_err_node(n, f));
+            }
+            ManyErrors::Many(out)
+        }
+    }
+}
+
+fn map_context_node<C, E, GC, F, GF, C2>(
+    node: Node<C, E, GC, F, GF>,
+    f: &mut impl FnMut(C) -> C2,
+) -> Node<C2, E, GC> {
+    match node {
+        Node::Leaf(w) => Node::Leaf(WithContext::new(f(w.context), w.error)),
+        Node::Group(g) => Node::Group(Subgroup::new(g.context, map_context_many(*g.errors, f))),
+    }
+}
+
+fn map_context_many<C, E, GC, F, GF, C2>(
+    me: ManyErrors<C, E, GC, F, GF>,
+    f: &mut impl FnMut(C) -> C2,
+) -> ManyErrors<C2, E, GC> {
+    match me {
+        ManyErrors::None => ManyErrors::None,
+        ManyErrors::One(n) => ManyErrors::One(map_context_node(n, f)),
+        ManyErrors::Many(v) => {
+            let mut out = Vec::with_capacity(v.len());
+            for n in v {
+                out.push(map_context_node(n, f));
+            }
+            ManyErrors::Many(out)
+        }
+    }
+}
+
+/// Converts `(context, Ok(_))` into an empty `ManyErrors` and
+/// `(context, Err(e))` into a single-leaf `ManyErrors`.
+impl<C, E, GC, F, GF, T> From<(C, Result<T, E>)> for ManyErrors<C, E, GC, F, GF> {
+    fn from((context, result): (C, Result<T, E>)) -> Self {
+        match result {
+            Ok(_) => Self::None,
+            Err(error) => {
+                let mut me = Self::None;
+                me.push(context, error);
+                me
+            }
+        }
     }
 }
 
@@ -554,6 +793,144 @@ mod tests {
     fn test_one_line_single_leaf_walks_chain() {
         let mut e = ManyErrors::<&str, Mid>::new();
         e.push("ctx", Mid::Inner(Inner::A));
-        assert_eq!(e.joined().to_string(), "ctx: mid: InnerA");
+        assert_eq!(e.one_line().to_string(), "ctx: mid: InnerA");
+        assert_eq!(e.joined().to_string(), e.one_line().to_string());
+    }
+
+    /// `one_line()` walks leaf chains; `FormatError::one_line` stops at Display.
+    #[test]
+    fn test_one_line_shadows_format_error_trait() {
+        use crate::FormatError;
+        let mut e = ManyErrors::<&str, Mid>::new();
+        e.push("a", Mid::Inner(Inner::A));
+        e.push("b", Mid::Inner(Inner::B));
+        // inherent: walks chains
+        assert_eq!(
+            e.one_line().to_string(),
+            "2 errors: a: mid: InnerA; b: mid: InnerB"
+        );
+        // trait (shallow): stops at ManyErrors::source() = None
+        assert_eq!(
+            FormatError::one_line(&e).to_string(),
+            "2 errors: a: mid; b: mid"
+        );
+    }
+
+    // --- ok / err ---
+
+    #[test]
+    fn test_ok_empty_is_some() {
+        let e = ManyErrors::<&str, Inner>::new();
+        assert_eq!(e.ok(), Some(()));
+    }
+
+    #[test]
+    fn test_ok_with_errors_is_none() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("a", Inner::A);
+        assert_eq!(e.ok(), None);
+    }
+
+    #[test]
+    fn test_err_empty_is_none() {
+        let e = ManyErrors::<&str, Inner>::new();
+        assert!(e.err().is_none());
+    }
+
+    #[test]
+    fn test_err_with_errors_is_some() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("a", Inner::A);
+        let errs = e.err().expect("should be Some");
+        assert_eq!(errs.len(), 1);
+    }
+
+    // --- map_err ---
+
+    #[test]
+    fn test_map_err_none_stays_none() {
+        let e = ManyErrors::<&str, Inner>::new();
+        let mapped: ManyErrors<&str, String> = e.map_err(|err| err.to_string());
+        assert!(mapped.is_empty());
+    }
+
+    #[test]
+    fn test_map_err_transforms_leaves() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("a", Inner::A);
+        e.push("b", Inner::B);
+        // Map Inner → Mid to stay within Error-implementing types.
+        let mapped = e.map_err(Mid::Inner);
+        assert_eq!(mapped.len(), 2);
+        assert_eq!(mapped.to_string(), "2 errors: a: mid; b: mid");
+    }
+
+    #[test]
+    fn test_map_err_recurses_into_groups() {
+        let mut inner = ManyErrors::<&str, Inner>::new();
+        inner.push("x", Inner::A);
+
+        let mut outer = ManyErrors::<&str, Inner>::new();
+        outer.push("leaf", Inner::B);
+        outer.push_group("region", inner);
+
+        let mapped = outer.map_err(Mid::Inner);
+        assert_eq!(mapped.len(), 2);
+        // Group structure preserved, errors replaced.
+        assert_eq!(
+            mapped.to_string(),
+            "2 errors: leaf: mid; region (x: mid)"
+        );
+    }
+
+    // --- map_context ---
+
+    #[test]
+    fn test_map_context_none_stays_none() {
+        let e = ManyErrors::<&str, Inner>::new();
+        // GC stays &str (unchanged); only leaf C changes.
+        let mapped: ManyErrors<String, Inner, &str> = e.map_context(|ctx| ctx.to_uppercase());
+        assert!(mapped.is_empty());
+    }
+
+    #[test]
+    fn test_map_context_transforms_leaves() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("a", Inner::A);
+        e.push("b", Inner::B);
+        let mapped = e.map_context(|ctx| ctx.to_uppercase());
+        assert_eq!(mapped.len(), 2);
+        assert_eq!(mapped.to_string(), "2 errors: A: InnerA; B: InnerB");
+    }
+
+    #[test]
+    fn test_map_context_recurses_into_groups_leaves_only() {
+        let mut inner = ManyErrors::<&str, Inner>::new();
+        inner.push("x", Inner::A);
+
+        let mut outer = ManyErrors::<&str, Inner>::new();
+        outer.push("leaf", Inner::B);
+        outer.push_group("region", inner);
+
+        let mapped = outer.map_context(|ctx| ctx.to_uppercase());
+        // group label "region" (GC) unchanged; leaf contexts uppercased
+        assert_eq!(
+            mapped.to_string(),
+            "2 errors: LEAF: InnerB; region (X: InnerA)"
+        );
+    }
+
+    // --- From<(C, Result<T, E>)> ---
+
+    #[test]
+    fn test_from_result_err_produces_one_leaf() {
+        let e: ManyErrors<&str, Inner> = ("ctx", Err::<(), _>(Inner::A)).into();
+        assert_eq!(e.len(), 1);
+    }
+
+    #[test]
+    fn test_from_result_ok_produces_empty() {
+        let e: ManyErrors<&str, Inner> = ("ctx", Ok::<(), Inner>(())).into();
+        assert!(e.is_empty());
     }
 }
