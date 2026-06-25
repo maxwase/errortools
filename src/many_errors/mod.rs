@@ -38,12 +38,66 @@ pub use strategy::{Bullets, Joined, List, Tree};
 /// [`FormatError::formatted`](crate::FormatError::formatted) for full generic
 /// control (e.g. `Tree<Ascii, false>`).
 ///
-/// Note that the generic per-error helpers
-/// [`one_line`](crate::FormatError::one_line) /
-/// [`chain`](crate::FormatError::chain) walk [`Error::source`], which is
-/// always `None` here — on a `ManyErrors` they render exactly the shallow
-/// `Display` text. For deep aggregate rendering use
-/// [`joined`](ManyErrors::joined) / [`tree`](ManyErrors::tree) instead.
+/// # ⚠ Warning: `one_line` / `chain` do NOT walk the aggregate
+///
+/// **[`FormatError::one_line`](crate::FormatError::one_line) and
+/// [`FormatError::chain`](crate::FormatError::chain) walk [`Error::source`],
+/// which is always `None` on a `ManyErrors`.** They will silently render
+/// only the shallow `Display` summary — the individual errors and their own
+/// source chains are invisible to them.
+///
+/// To print the full aggregate with per-error source chains, use one of the
+/// dedicated aggregate renderers:
+///
+/// ```
+/// # use errortools::ManyErrors;
+/// # let errs: ManyErrors<&str, std::io::Error> = ManyErrors::default();
+/// // Flat: "ctx: err1\nctx: err2\n…"
+/// println!("{}", errs.joined());
+///
+/// // Hierarchical tree (walks each leaf's Error::source chain too):
+/// println!("{}", errs.tree());
+/// ```
+///
+/// If you need the generic [`FormatError`](crate::FormatError) API (e.g.\ to
+/// pick `Tree<Ascii, false>` at call-site), use
+/// [`formatted`](ManyErrors::formatted) — **not** `one_line` / `chain`.
+///
+/// # Embedding in an error enum
+///
+/// When an operation can fail on multiple items, the typical pattern is a
+/// dedicated `Many` variant that holds the aggregate. Because
+/// `Error::source` is always `None` on a `ManyErrors`, **do not add
+/// `#[source]` or `#[from]`** — they are useless here. Instead, render the
+/// full tree inline inside the variant message so that callers who call
+/// `one_line()` / `chain()` on the *outer* error still see the whole picture:
+///
+/// ```rust
+/// use errortools::ManyErrors;
+/// use thiserror::Error;
+///
+/// #[derive(Debug, Error)]
+/// enum ProcessError {
+///     #[error("Invalid input: {0}")]
+///     InvalidInput(String),
+/// }
+///
+/// #[derive(Debug, Error)]
+/// enum Error {
+///     #[error("Single failure: {0}")]
+///     One(#[source] ProcessError),
+///
+///     // No #[source] / #[from]: source() is always None on ManyErrors.
+///     // The tree is rendered eagerly inside the message so chain() / one_line()
+///     // on the *outer* Error still surface every failure.
+///     #[error("Multiple failures:\n{}", .0.tree())]
+///     Many(ManyErrors<String, Box<ProcessError>>),
+/// }
+/// ```
+///
+/// Calling `chain()` on an `Error::Many` value will print the `#[error]`
+/// text — which already contains the rendered tree — and stop there (no
+/// further `source()` walk). That is intentional: the tree is the trace.
 ///
 /// # Customizing group rendering
 /// Two independent levers:
@@ -210,7 +264,7 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// let mut errs = ManyErrors::<&str, std::io::Error>::new();
     /// errs.push_result("step 1", Ok::<(), _>(()));
     /// assert!(errs.is_empty());
-    /// errs.push_result("step 2", Err(std::io::Error::other("fail")));
+    /// errs.push_result::<()>("step 2", Err(std::io::Error::other("fail")));
     /// assert_eq!(errs.len(), 1);
     /// ```
     pub fn push_result<T>(&mut self, context: C, result: Result<T, E>) {
@@ -877,10 +931,7 @@ mod tests {
         let mapped = outer.map_err(Mid::Inner);
         assert_eq!(mapped.len(), 2);
         // Group structure preserved, errors replaced.
-        assert_eq!(
-            mapped.to_string(),
-            "2 errors: leaf: mid; region (x: mid)"
-        );
+        assert_eq!(mapped.to_string(), "2 errors: leaf: mid; region (x: mid)");
     }
 
     // --- map_context ---
