@@ -36,7 +36,7 @@
 //! struct Arrows;
 //! impl<C, E, GC, F, GF> Format<ManyErrors<C, E, GC, F, GF>> for Arrows
 //! where
-//!     E: core::error::Error + 'static,
+//!     E: core::error::Error,
 //!     F: Format<errortools::WithContext<C, E, F>>,
 //! {
 //!     fn fmt(errors: &ManyErrors<C, E, GC, F, GF>, f: &mut Formatter<'_>) -> fmt::Result {
@@ -135,7 +135,7 @@ macro_rules! impl_aggregate_format {
     ($strategy:ident, |$errors:ident, $f:ident| $call:expr) => {
         impl<C, E, GC, F, GF> $crate::Format<$crate::ManyErrors<C, E, GC, F, GF>> for $strategy
         where
-            E: ::core::error::Error + 'static,
+            E: ::core::error::Error,
             F: $crate::Format<$crate::with_context::WithContext<C, E, F>>,
             GF: $crate::Format<GC>,
         {

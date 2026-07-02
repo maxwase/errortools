@@ -75,7 +75,7 @@ impl<C, E, GroupContext, F, GroupFormat> Subgroup<C, E, GroupContext, F, GroupFo
 /// label from `GroupFormat` directly and lay out the children themselves.
 impl<C, E, GroupContext, F, GroupFormat> Display for Subgroup<C, E, GroupContext, F, GroupFormat>
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GroupFormat: Format<GroupContext>,
 {
@@ -91,7 +91,7 @@ impl<C, E, GroupContext, F, GroupFormat> Error for Subgroup<C, E, GroupContext, 
 where
     C: fmt::Debug,
     GroupContext: fmt::Debug,
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GroupFormat: Format<GroupContext>,
 {
@@ -196,7 +196,7 @@ impl<C, E, GroupContext, F, GroupFormat> Node<C, E, GroupContext, F, GroupFormat
 /// (`"{label} (…shallow summary…)"`).
 impl<C, E, GroupContext, F, GroupFormat> Display for Node<C, E, GroupContext, F, GroupFormat>
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GroupFormat: Format<GroupContext>,
 {
@@ -212,7 +212,7 @@ impl<C, E, GroupContext, F, GroupFormat> Error for Node<C, E, GroupContext, F, G
 where
     C: fmt::Debug,
     GroupContext: fmt::Debug,
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GroupFormat: Format<GroupContext>,
 {

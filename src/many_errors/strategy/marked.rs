@@ -43,7 +43,7 @@ pub(super) fn draw_marked_many<M, C, E, GC, F, GF>(
 ) -> fmt::Result
 where
     M: Marker,
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {
@@ -66,7 +66,7 @@ fn draw_children<M, C, E, GC, F, GF>(
 ) -> fmt::Result
 where
     M: Marker,
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {
@@ -96,7 +96,7 @@ fn draw_marked_node<M, C, E, GC, F, GF>(
 ) -> fmt::Result
 where
     M: Marker,
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {

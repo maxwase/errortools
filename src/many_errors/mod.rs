@@ -527,7 +527,7 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
 /// [`bullets`](ManyErrors::bullets).
 impl<C, E, GC, F, GF> Display for ManyErrors<C, E, GC, F, GF>
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {
@@ -540,7 +540,7 @@ impl<C, E, GC, F, GF> Error for ManyErrors<C, E, GC, F, GF>
 where
     C: Debug,
     GC: Debug,
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {

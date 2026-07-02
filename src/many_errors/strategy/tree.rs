@@ -55,7 +55,7 @@ impl<Conn: fmt::Debug + Default, const HEADER: bool> fmt::Debug for Tree<Conn, H
 impl<C, GC, E, F, GF, Conn, const HEADER: bool> Format<ManyErrors<C, E, GC, F, GF>>
     for Tree<Conn, HEADER>
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
     Conn: TreeConnectors,
@@ -114,7 +114,7 @@ fn draw_many<Conn, C, GC, E, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
     Conn: TreeConnectors,
@@ -142,7 +142,7 @@ fn draw_children<Conn, C, GC, E, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
     Conn: TreeConnectors,
@@ -172,7 +172,7 @@ fn draw_node<Conn, C, GC, E, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
     Conn: TreeConnectors,

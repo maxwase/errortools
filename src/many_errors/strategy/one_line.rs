@@ -98,7 +98,7 @@ fn draw_summary<C, E, GC, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {
@@ -112,7 +112,7 @@ fn summary_node<C, E, GC, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {
@@ -129,7 +129,7 @@ fn draw_joined<C, E, GC, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {
@@ -145,7 +145,7 @@ fn joined_node<C, E, GC, F, GF>(
     f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result
 where
-    E: Error + 'static,
+    E: Error,
     F: Format<WithContext<C, E, F>>,
     GF: Format<GC>,
 {

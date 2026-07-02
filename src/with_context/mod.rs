@@ -138,7 +138,7 @@ where
 impl<C, E, WithContextFormat> Error for WithContext<C, E, WithContextFormat>
 where
     C: Debug,
-    E: Error + 'static,
+    E: Error,
     WithContextFormat: Format<Self>,
 {
     /// Returns the inner error's source, skipping the inner error itself
