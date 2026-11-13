@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Detached` (requires `alloc`): an owned, cloneable, `Send + Sync + 'static` snapshot of an error chain, taken with `FormatError::detach()` or built with `Detached::new` and `Detached::with_source`. It implements `Error` and renders through every strategy like the original.
 - `ManyErrors::collect_results`: splits `(context, Result)` pairs into `Ok(Vec<T>)` or the aggregate of every failure.
 - `ManyErrors`: `FromIterator` and `Extend` accept `(C, Result<T, E>)`; `Ok` items are skipped.
+- `ManyErrors::detach()`: inherent method that snapshots the deep one-line rendering, shadowing the shallow `FormatError::detach()`. `errs.map_err(|e| e.detach())` keeps the structure instead.
 - `ManyErrors::chain()`: inherent method, same rendering as `tree()`. Together with the inherent `one_line()` it shadows the shallow `FormatError` method of the same name on a concrete `ManyErrors`.
 - `inner()` and `into_inner()` on `Formatted`, `MainError`, `DisplaySwapDebug` and `DisplayPath`.
 - `DisplayPath::new`, a `const fn` constructor next to the existing `From` impl.

@@ -8,8 +8,11 @@ use errortools::{Ascii, FormattedRef, ManyErrors, Tree};
 
 #[derive(Debug, thiserror::Error)]
 enum DeployError {
-    #[error("Deploy failed")]
-    Failed(#[source] ManyErrors<&'static str, RegionError>),
+    // The aggregate is rendered in the message and is not a `#[source]`:
+    // `ManyErrors::source` is `None`, so a chain walk would stop at the
+    // shallow summary.
+    #[error("Deploy failed:\n{}", .0.tree())]
+    Failed(ManyErrors<&'static str, RegionError>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -57,9 +60,9 @@ fn main() {
     println!("=== ASCII connectors, no header ===");
     println!("{}", FormattedRef::<_, Tree<Ascii, false>>::new(&all));
 
-    // Show it as a source in a top-level error
+    // Embed it in a top-level error
     let err = DeployError::Failed(all);
     println!();
-    println!("=== As thiserror source ===");
+    println!("=== Inside a thiserror variant ===");
     println!("{err}");
 }

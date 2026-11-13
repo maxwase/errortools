@@ -176,6 +176,10 @@ where
 /// let err = load("no/such/dir/config.toml").unwrap_err();
 /// assert!(err.one_line().to_string().starts_with("Failed to load config: no/such/dir/config.toml: "));
 /// ```
+///
+/// When the target does not pin the strategy, as with `Box<dyn Error>`, the
+/// compiler reports that it cannot infer `F`. Name it there:
+/// `.context::<_, Colon>(path)?`, with [`Colon`] from this module.
 pub trait ResultExt<T, E> {
     /// Pairs the error with `context`, yielding a [`WithContext`] error.
     fn context<C, F>(self, context: C) -> Result<T, WithContext<C, E, F>>;

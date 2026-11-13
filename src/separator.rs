@@ -257,6 +257,27 @@ mod tests {
         );
     }
 
+    /// Outer width flags reach a plain tuple element but not the right side
+    /// of `Then`, which renders through a fresh formatter.
+    #[test]
+    fn test_then_does_not_forward_width() {
+        /// Honours the outer width, like `Display` for `str` does.
+        struct Padded;
+        impl<E: ?Sized> Format<E> for Padded {
+            fn fmt(_: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.pad("x")
+            }
+        }
+
+        let in_tuple = format!("{:>4}", Formatted::<_, (Empty, Padded)>::new(Error::One));
+        assert_eq!(in_tuple, "   x");
+        let through_then = format!(
+            "{:>4}",
+            Formatted::<_, Then<Empty, Padded>>::new(Error::One)
+        );
+        assert_eq!(through_then, "x");
+    }
+
     /// The separator is written once, even when the right side writes in
     /// several chunks.
     #[test]

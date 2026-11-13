@@ -143,7 +143,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         F::fmt(self.0, f)?;
-        // `chain` yields the error itself first; skipping it leaves exactly
+        // `sources` yields the error itself first; skipping it leaves exactly
         // the sources (`WithContext::source` starts past the inner error too).
         for src in sources(&self.0.error).skip(1) {
             write!(f, ": {src}")?;

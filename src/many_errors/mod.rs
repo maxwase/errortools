@@ -501,6 +501,25 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
         self.tree()
     }
 
+    /// Snapshots the whole aggregate into one owned [`Detached`](crate::Detached)
+    /// whose message is the deep [`one_line`](Self::one_line) rendering.
+    ///
+    /// A `Detached` is a linear chain, so the tree structure is flattened into
+    /// that one line. To keep the structure and still get owned, cloneable
+    /// leaves, detach each leaf instead: `errs.map_err(|e| e.detach())`.
+    ///
+    /// # Shadowing [`FormatError::detach`](crate::FormatError::detach)
+    ///
+    /// The trait method walks [`Error::source`], which is always `None` here,
+    /// so it would keep only the shallow [`Display`] summary and drop every
+    /// leaf's source chain. This inherent method wins at the call site.
+    pub fn detach(&self) -> crate::Detached
+    where
+        Joined: Format<Self>,
+    {
+        crate::Detached::new(alloc::string::ToString::to_string(&self.one_line()))
+    }
+
     /// Wraps `self` for rendering with an arbitrary aggregate [`Format`]
     /// strategy `F2` — the escape hatch behind [`tree`](Self::tree)/
     /// [`list`](Self::list)/… for custom markers or non-default generics
@@ -822,6 +841,24 @@ mod tests {
         e.push("a", Inner::A);
         e.push("b", Inner::B);
         assert_eq!(e.to_string(), "2 errors: a: InnerA; b: InnerB");
+    }
+
+    /// The inherent `detach` keeps the leaf source chains; mapping the leaves
+    /// keeps the structure as well.
+    #[test]
+    fn test_detach_keeps_leaf_chains() {
+        let mut e = ManyErrors::<&str, Mid>::new();
+        e.push("a", Mid::Inner(Inner::A));
+        e.push("b", Mid::Inner(Inner::B));
+        let deep = "2 errors: a: mid: InnerA; b: mid: InnerB";
+        assert_eq!(e.one_line().to_string(), deep);
+
+        let detached = e.detach();
+        assert_eq!(detached.message(), deep);
+        assert!(detached.cause().is_none());
+
+        let mapped = e.map_err(|error| crate::FormatError::detach(&error));
+        assert_eq!(mapped.one_line().to_string(), deep);
     }
 
     /// Default Display does not walk a leaf's source chain.
