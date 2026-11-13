@@ -5,7 +5,7 @@
 use std::io;
 
 use errortools::many_errors::Ascii;
-use errortools::{Formatted, ManyErrors, many_errors::Tree};
+use errortools::{FormattedRef, ManyErrors, many_errors::Tree};
 
 #[derive(Debug, thiserror::Error)]
 enum DeployError {
@@ -56,7 +56,7 @@ fn main() {
 
     println!();
     println!("=== ASCII connectors, no header ===");
-    println!("{}", Formatted::<_, Tree<Ascii, false>>::new(&all));
+    println!("{}", FormattedRef::<_, Tree<Ascii, false>>::new(&all));
 
     // Show it as a source in a top-level error
     let err = DeployError::Failed(all);

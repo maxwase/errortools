@@ -29,7 +29,7 @@ struct Json<F>(PhantomData<fn() -> F>);
 impl<E, F> Format<E> for Json<F>
 where
     E: std::error::Error + ?Sized,
-    F: for<'a> Format<&'a E>,
+    F: Format<E>,
 {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{{ \"message\": \"{}\" }}", error.formatted::<F>())

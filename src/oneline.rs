@@ -43,7 +43,7 @@ mod tests {
         // Debug surfaces the wrapped error and the active strategy.
         assert_eq!(
             format!("{:?}", error.one_line()),
-            "Formatted { error: One, format: OneLine }"
+            "FormattedRef { error: One, format: OneLine }"
         );
         assert_eq!(Formatted::<_, OneLine>::new(Error::One).to_string(), "One");
 
@@ -51,8 +51,21 @@ mod tests {
         assert_eq!(error.one_line().to_string(), "Two: InnerA");
         assert_eq!(
             format!("{:?}", error.one_line()),
-            "Formatted { error: Two(A), format: OneLine }"
+            "FormattedRef { error: Two(A), format: OneLine }"
         );
+    }
+
+    /// The borrowing helpers work on an unsized `dyn Error`.
+    #[test]
+    fn test_dyn_error() {
+        let error = Error::from(io::Error::other("test"));
+        let dyn_error: &dyn core::error::Error = &error;
+        assert_eq!(dyn_error.one_line().to_string(), "Three: test");
+        assert_eq!(dyn_error.chain().to_string(), "Three\n└─ test");
+        // `Copy`: the wrapper can be rendered after being copied out.
+        let wrapper = dyn_error.one_line();
+        let copy = wrapper;
+        assert_eq!(wrapper.to_string(), copy.to_string());
     }
 
     #[test]

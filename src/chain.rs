@@ -60,7 +60,7 @@ pub struct Chain<C = Unicode>(PhantomData<fn() -> C>);
 /// instead of spilling flush-left.
 impl<E: Error + ?Sized, C: Connectors> Format<E> for Chain<C> {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // &error: &&E; &&E coerces to &dyn Error via the blanket `impl<T: Error + ?Sized> Error for &T`.
+        // `E` may be unsized, so `&E` cannot coerce to `&dyn Error`; `&&E` can.
         for (depth, e) in chain(&error).enumerate() {
             match depth {
                 0 => write!(f, "{e}")?,

@@ -22,8 +22,6 @@ use crate::{
     with_context::WithContext,
 };
 
-use crate::impl_ref_format;
-
 use super::{ErrorCount, Label, NO_ERRORS};
 
 /// Aggregate strategy that renders a [`ManyErrors`] as a branching tree.
@@ -66,8 +64,6 @@ where
         draw_many::<Conn, C, GC, E, F, GF>(errors, &mut levels, HEADER, f)
     }
 }
-
-impl_ref_format!(Tree<Conn, HEADER>, Conn, const HEADER: bool);
 
 /// Lazily renders an ancestry prefix: one `VERT`/`GAP` per `levels` entry (a
 /// bar for ancestors with siblings below, blank otherwise), then `extra`
@@ -233,7 +229,7 @@ fn draw_error_chain<Conn: TreeConnectors>(
 mod tests {
     use super::*;
     use crate::{
-        Formatted, ManyErrors,
+        FormattedRef, ManyErrors,
         connectors::{Ascii, Unicode},
         many_errors::strategy::test_helpers::{two_leaves, with_chain},
         tests::Inner,
@@ -285,7 +281,7 @@ mod tests {
     fn test_tree_ascii() {
         let e = two_leaves();
         assert_eq!(
-            Formatted::<_, Tree<Ascii>>::new(&e).to_string(),
+            FormattedRef::<_, Tree<Ascii>>::new(&e).to_string(),
             "2 errors:\n|- a: InnerA\n`- b: InnerB"
         );
     }
@@ -294,7 +290,7 @@ mod tests {
     fn test_tree_no_header() {
         let e = two_leaves();
         assert_eq!(
-            Formatted::<_, Tree<Unicode, false>>::new(&e).to_string(),
+            FormattedRef::<_, Tree<Unicode, false>>::new(&e).to_string(),
             "├─ a: InnerA\n└─ b: InnerB"
         );
     }

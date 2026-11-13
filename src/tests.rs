@@ -141,6 +141,13 @@ fn _assert_derive_traits() {
     // compile even though `NoTraits` implements nothing.
     struct NoTraits;
     assert_all::<Formatted<DummyError, NoTraits>>();
+
+    // The borrowing wrapper has no `Default` (nothing to borrow), is equally
+    // `F`-free, and stays `Copy` over an unsized `dyn Error`.
+    fn assert_ref<T: Clone + Copy + PartialEq + Eq + Hash + Send + Sync>() {}
+    assert_ref::<crate::FormattedRef<'static, DummyError, NoTraits>>();
+    fn assert_copy<T: Clone + Copy>() {}
+    assert_copy::<crate::FormattedRef<'static, dyn core::error::Error, NoTraits>>();
     assert_all::<Chain<NoTraits>>();
     assert_all::<Add<NoTraits, NoTraits>>();
     #[cfg(feature = "alloc")]

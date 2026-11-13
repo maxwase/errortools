@@ -1,8 +1,8 @@
 //! Aggregate format strategies for [`ManyErrors`](crate::ManyErrors): [`Tree`], [`List`], [`Bullets`], [`Joined`].
 //!
-//! All strategies implement [`Format<ManyErrors<…>>`] (and the ref trampoline
-//! [`Format<&ManyErrors<…>>`]) so they work with both `Display` and
-//! [`Formatted`](crate::Formatted) wrappers.
+//! All strategies implement [`Format<ManyErrors<…>>`], so they work with both
+//! the owned [`Formatted`](crate::Formatted) and the borrowing
+//! [`FormattedRef`](crate::FormattedRef) wrappers.
 //!
 //! `Summary` is the crate-internal shallow strategy backing the default
 //! [`Display`]: own text only, no source chains.
@@ -17,9 +17,7 @@
 //! [`ErrorCount`] for the `"N errors"` count phrase, [`NO_ERRORS`] for the empty
 //! marker, and [`LeafChain`] to render a leaf together with its `": "`-joined
 //! source chain (without forcing a `C: Debug` bound). Re-indent any embedded
-//! newlines with [`indented`](crate::indent::indented). Pair the impl with the
-//! [`impl_ref_format!`](crate::impl_ref_format) macro to get the `&T` trampoline
-//! for free.
+//! newlines with [`indented`](crate::indent::indented).
 //!
 //! Group headers are rendered through the group's own label strategy `GF` via
 //! `write!(f, "{w}")` (default [`AsDisplay`](crate::AsDisplay): the label's own
@@ -53,7 +51,6 @@
 //!         Ok(())
 //!     }
 //! }
-//! errortools::impl_ref_format!(Arrows);
 //!
 //! let mut errs = ManyErrors::<&str, std::io::Error>::new();
 //! errs.push("a.txt", std::io::Error::other("missing"));
@@ -83,47 +80,8 @@ pub use one_line::Joined;
 pub(crate) use one_line::Summary;
 pub use tree::Tree;
 
-/// Emits the ref trampoline `Format<&T> where Self: Format<T>` for a strategy:
-/// any `&T` formats like `T`, so `&ManyErrors` (and deeper references) work in
-/// [`Formatted`](crate::Formatted) without a dedicated impl per reference
-/// level. Extra generic parameters of the strategy go after the type, e.g.
-/// `impl_ref_format!(Tree<Conn, HEADER>, Conn, const HEADER: bool)`.
-///
-/// Pair this with a `Format<ManyErrors<…>>` impl when authoring a custom
-/// aggregate strategy so it works behind a reference (the form
-/// [`Formatted`](crate::Formatted) wraps).
-///
-/// # Why a per-type macro and not one blanket impl
-///
-/// The tempting `impl<S, T: ?Sized> Format<&T> for S where S: Format<T>` is
-/// rejected by coherence: [`AsDisplay`](crate::AsDisplay)'s
-/// `impl<T: Display + ?Sized> Format<T>` already matches reference types
-/// (`&U: Display` whenever `U: Display`), so `AsDisplay: Format<&U>` would be
-/// provable two ways and stable Rust cannot prove the two disjoint. Removing it
-/// would need specialization or negative bounds (neither stable).
-///
-/// This forwarding exists only because [`Formatted`](crate::Formatted) stores
-/// its value *by value* while the borrowing constructors (`tree`, `formatted`,
-/// …) hand it a `&ManyErrors`. A borrow-only `Formatted` would drop the need
-/// for all but pathological multi-reference cases — at the cost of owned
-/// wrappers. So the macro is the price of that ownership choice, not a wart to
-/// be removed by a future compiler.
-#[macro_export]
-macro_rules! impl_ref_format {
-    ($strategy:ty $(, $($gen:tt)*)?) => {
-        impl<T: ?Sized $(, $($gen)*)?> $crate::Format<&T> for $strategy
-        where
-            Self: $crate::Format<T>,
-        {
-            fn fmt(error: &&T, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                <Self as $crate::Format<T>>::fmt(*error, f)
-            }
-        }
-    };
-}
-
-/// Emits the `Format<ManyErrors<…>>` impl and a generic `Format<&T>` ref
-/// trampoline for an aggregate strategy with no extra generic parameters.
+/// Emits the `Format<ManyErrors<…>>` impl for an aggregate strategy with no
+/// extra generic parameters.
 ///
 /// The closure-like argument names the entry-point `draw_*` call.
 ///
@@ -146,8 +104,6 @@ macro_rules! impl_aggregate_format {
                 $call
             }
         }
-
-        $crate::impl_ref_format!($strategy);
     };
 }
 
@@ -235,21 +191,9 @@ mod tests {
 
     use super::LeafChain;
     use crate::tests::{Inner, Mid};
-    use crate::{Format, FormatError, Formatted, ManyErrors, WithContext};
+    use crate::{Format, FormatError, ManyErrors, WithContext};
 
     use super::test_helpers::two_leaves;
-
-    /// The generic ref trampoline forwards through any number of reference levels.
-    #[test]
-    fn test_ref_trampoline_double_reference() {
-        let e = two_leaves();
-        let direct = e.list().to_string();
-        assert_eq!(Formatted::<_, super::List>::new(&&e).to_string(), direct);
-        assert_eq!(
-            Formatted::<_, super::Tree>::new(&&e).to_string(),
-            e.tree().to_string()
-        );
-    }
 
     /// `LeafChain` is output-identical to `OneLine` on the same `WithContext`.
     #[test]
@@ -332,8 +276,6 @@ mod tests {
                 write!(f, "{} direct children", errors.len())
             }
         }
-        // The public macro supplies the `&T` ref trampoline a custom strategy needs.
-        impl_ref_format!(Count);
 
         let e = two_leaves();
         assert_eq!(e.formatted::<Count>().to_string(), "2 direct children");

@@ -105,7 +105,7 @@ pub fn chain<'a>(error: &'a dyn Error) -> impl Iterator<Item = &'a dyn Error> + 
 /// A helper trait to format errors.
 pub trait FormatError {
     /// Formats the error in a single line concatenated by `: `.
-    fn one_line(&self) -> Formatted<&Self, OneLine> {
+    fn one_line(&self) -> FormattedRef<'_, Self, OneLine> {
         self.formatted::<OneLine>()
     }
 
@@ -113,13 +113,13 @@ pub trait FormatError {
     ///
     /// For aggregate many-error rendering (branching tree) see
     /// `ManyErrors::tree` (requires the `alloc` feature).
-    fn chain(&self) -> Formatted<&Self, Chain> {
+    fn chain(&self) -> FormattedRef<'_, Self, Chain> {
         self.formatted::<Chain>()
     }
 
     /// Renders the error's [`Suggestion`] hint. Only the top-level error is
     /// printed; the source chain is not walked.
-    fn suggestion(&self) -> Formatted<&Self, Suggestion>
+    fn suggestion(&self) -> FormattedRef<'_, Self, Suggestion>
     where
         Self: Suggest,
     {
@@ -132,14 +132,18 @@ pub trait FormatError {
     /// render even when they don't implement `Error` provide an unbounded
     /// inherent twin that shadows this method and returns the same wrapper —
     /// see `ManyErrors::formatted` (requires the `alloc` feature).
-    fn formatted<F>(&self) -> Formatted<&Self, F> {
-        Formatted::new(self)
+    fn formatted<F>(&self) -> FormattedRef<'_, Self, F> {
+        FormattedRef::new(self)
     }
 }
 
 impl<E: Error + ?Sized> FormatError for E {}
 
-/// An error wrapper that uses a static [`Format`] strategy for [`fmt::Display`].
+/// An owning error wrapper that uses a static [`Format`] strategy for [`fmt::Display`].
+///
+/// This is the wrapper behind [`MainResult`]; the borrowing helpers
+/// ([`FormatError::one_line`], [`FormatError::formatted`], …) return
+/// [`FormattedRef`] instead.
 ///
 /// `F` is a type-level tag (never instantiated). The `fn() -> F` inside
 /// [`PhantomData`] avoids drop-check ownership of `F` and makes the wrapper
@@ -172,6 +176,46 @@ impl<E, F: Format<E>> fmt::Display for Formatted<E, F> {
 impl<E: fmt::Debug, F: fmt::Debug + Default> fmt::Debug for Formatted<E, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Formatted")
+            .field("error", &self.0)
+            .field("format", &F::default())
+            .finish()
+    }
+}
+
+/// A borrowing error wrapper that uses a static [`Format`] strategy for
+/// [`fmt::Display`] — the by-reference twin of [`Formatted`].
+///
+/// Returned by the borrowing helpers ([`FormatError::one_line`],
+/// [`FormatError::chain`], [`FormatError::formatted`], `ManyErrors::tree`, …).
+/// It borrows `E` rather than storing a `&E` by value, so its `Display` needs
+/// only `F: Format<E>` (never `F: Format<&E>`) and `E` may be unsized, such as
+/// `dyn Error`.
+///
+/// `F` is a type-level tag, exactly as in [`Formatted`].
+#[derive_where(Clone, Copy)]
+#[derive_where(PartialEq, Eq, Hash; E)]
+pub struct FormattedRef<'a, E: ?Sized, F = OneLine>(&'a E, PhantomData<fn() -> F>);
+
+impl<'a, E: ?Sized, F> FormattedRef<'a, E, F> {
+    /// Borrows `error` so its `Display` impl uses the [`Format`] strategy `F`.
+    pub const fn new(error: &'a E) -> Self {
+        FormattedRef(error, PhantomData)
+    }
+}
+
+/// Renders the borrowed value via the strategy `F`; the only requirement is
+/// `F: Format<E>`, as for [`Formatted`].
+impl<E: ?Sized, F: Format<E>> fmt::Display for FormattedRef<'_, E, F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        F::fmt(self.0, f)
+    }
+}
+
+/// Same `{ error, format }` shape as [`Formatted`]'s `Debug`, under the name
+/// `FormattedRef`; the strategy is materialized via [`Default`].
+impl<E: fmt::Debug + ?Sized, F: fmt::Debug + Default> fmt::Debug for FormattedRef<'_, E, F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FormattedRef")
             .field("error", &self.0)
             .field("format", &F::default())
             .finish()

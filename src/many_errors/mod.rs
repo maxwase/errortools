@@ -110,7 +110,7 @@ pub use strategy::{Bullets, Joined, List, Tree};
 ///   double-render and break the layout.
 /// - **Whole layout** — for full control over label, separators, and nesting,
 ///   implement [`Format<ManyErrors<…>>`](crate::Format) for your own marker
-///   (exactly like [`Tree`]/[`List`]) plus a one-line ref forwarder, and render
+///   (exactly like [`Tree`]/[`List`]) and render
 ///   via [`formatted`](ManyErrors::formatted):
 ///
 /// ```
@@ -129,16 +129,6 @@ pub use strategy::{Bullets, Joined, List, Tree};
 ///             }
 ///         }
 ///         Ok(())
-///     }
-/// }
-///
-/// // The ref forwarder lets `Formatted<&ManyErrors<…>, Dashed>` render too.
-/// impl<T: ?Sized> Format<&T> for Dashed
-/// where
-///     Dashed: Format<T>,
-/// {
-///     fn fmt(errors: &&T, f: &mut Formatter<'_>) -> fmt::Result {
-///         <Self as Format<T>>::fmt(*errors, f)
 ///     }
 /// }
 ///
@@ -456,18 +446,18 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
 
 impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// Renders as a branching Unicode tree with a count header, walking each leaf's source chain.
-    pub fn tree(&self) -> crate::Formatted<&Self, Tree> {
-        crate::Formatted::new(self)
+    pub fn tree(&self) -> crate::FormattedRef<'_, Self, Tree> {
+        crate::FormattedRef::new(self)
     }
 
     /// Renders as a dotted numbered list (`1.  1.1.  1.2.  2.`).
-    pub fn list(&self) -> crate::Formatted<&Self, List> {
-        crate::Formatted::new(self)
+    pub fn list(&self) -> crate::FormattedRef<'_, Self, List> {
+        crate::FormattedRef::new(self)
     }
 
     /// Renders as a bulleted list with `•` markers.
-    pub fn bullets(&self) -> crate::Formatted<&Self, Bullets> {
-        crate::Formatted::new(self)
+    pub fn bullets(&self) -> crate::FormattedRef<'_, Self, Bullets> {
+        crate::FormattedRef::new(self)
     }
 
     /// Renders on a single line: `;`-separated siblings, parens around groups,
@@ -481,16 +471,16 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// wins at the call site and produces a meaningful aggregate rendering
     /// instead. The trait method remains reachable as
     /// `FormatError::one_line(&errs)` if the `OneLine` behavior is needed.
-    pub fn one_line(&self) -> crate::Formatted<&Self, Joined> {
-        crate::Formatted::new(self)
+    pub fn one_line(&self) -> crate::FormattedRef<'_, Self, Joined> {
+        crate::FormattedRef::new(self)
     }
 
     /// Renders on a single line: `;`-separated siblings, parens around groups.
     ///
     /// Alias for [`one_line`](Self::one_line); prefer that name for
     /// consistency with [`FormatError`](crate::FormatError).
-    pub fn joined(&self) -> crate::Formatted<&Self, Joined> {
-        crate::Formatted::new(self)
+    pub fn joined(&self) -> crate::FormattedRef<'_, Self, Joined> {
+        crate::FormattedRef::new(self)
     }
 
     /// Wraps `self` for rendering with an arbitrary aggregate [`Format`]
@@ -510,13 +500,13 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     ///
     /// At a call site the inherent method always wins over the trait method,
     /// and when both apply they produce the identical
-    /// [`Formatted`](crate::Formatted) value — so there is nothing to choose:
+    /// [`FormattedRef`](crate::FormattedRef) value — so there is nothing to choose:
     /// `errs.formatted::<F2>()` just also compiles for aggregates that aren't
     /// errors themselves (a non-`Debug` context type, for example). The trait
     /// method remains reachable as `FormatError::formatted(&errs)` if you need
     /// to prove the `Error` bound.
-    pub const fn formatted<F2>(&self) -> crate::Formatted<&Self, F2> {
-        crate::Formatted::new(self)
+    pub const fn formatted<F2>(&self) -> crate::FormattedRef<'_, Self, F2> {
+        crate::FormattedRef::new(self)
     }
 }
 

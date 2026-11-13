@@ -36,7 +36,7 @@ impl<T: Suggest + ?Sized> Suggest for &T {
 ///
 /// The source chain is not walked — only the wrapped error's own hint is
 /// printed. Pair with [`FormatError::suggestion`](crate::FormatError::suggestion)
-/// (returns `Formatted<&Self, Suggestion>`).
+/// (returns `FormattedRef<'_, Self, Suggestion>`).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Suggestion;
 
@@ -104,11 +104,11 @@ mod tests {
         // materialized strategy tag.
         assert_eq!(
             format!("{:?}", Error::One.suggestion()),
-            "Formatted { error: One, format: Suggestion }"
+            "FormattedRef { error: One, format: Suggestion }"
         );
         assert_eq!(
             format!("{:?}", NoHint.suggestion()),
-            "Formatted { error: NoHint, format: Suggestion }"
+            "FormattedRef { error: NoHint, format: Suggestion }"
         );
     }
 
