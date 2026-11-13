@@ -15,16 +15,16 @@ include = ["src/**/*.rs", "examples/**/*.rs", "README.md", "CHANGELOG.md", "LICE
 
 [dependencies]
 derive-where = "1.6.1"
-itertools = { version = "0.15", default-features = false }
 
 [dev-dependencies]
+itertools = "0.15"
 pretty_assertions = "1.4.1"
 thiserror = "2"
 
 [features]
 default = ["std"]
 
-std = ["alloc", "itertools/use_std"]
+std = ["alloc"]
 alloc = []
 
 [[example]]

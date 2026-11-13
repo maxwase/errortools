@@ -1,4 +1,4 @@
-use core::{error::Error, fmt};
+use core::fmt;
 
 use crate::Format;
 
@@ -17,6 +17,21 @@ use crate::Format;
 ///
 /// Render via [`FormatError::suggestion`](crate::FormatError::suggestion),
 /// which dispatches through the [`Suggestion`] strategy.
+///
+/// A type without an impl cannot be rendered through [`Suggestion`]:
+/// ```compile_fail,E0277
+/// use errortools::{Formatted, Suggestion};
+/// use std::io;
+///
+/// // `io::Error` does not implement `Suggest`.
+/// let hint = Formatted::<_, Suggestion>::new(io::Error::other("boom"));
+/// println!("{hint}");
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` has no suggestion to render",
+    label = "`{Self}` does not implement `Suggest`",
+    note = "implement `Suggest` for `{Self}`; an empty impl is enough for a type with no hint"
+)]
 pub trait Suggest {
     /// Writes the suggestion text for `self` to `f`. The default writes
     /// nothing.
@@ -40,7 +55,7 @@ impl<T: Suggest + ?Sized> Suggest for &T {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Suggestion;
 
-impl<E: Error + Suggest + ?Sized> Format<E> for Suggestion {
+impl<E: Suggest + ?Sized> Format<E> for Suggestion {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Suggest::fmt(error, f)
     }

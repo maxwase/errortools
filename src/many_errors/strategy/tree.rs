@@ -211,7 +211,7 @@ fn draw_error_chain<Conn: TreeConnectors>(
     let Some(first) = source else {
         return Ok(());
     };
-    for (depth, src) in crate::chain(first).enumerate() {
+    for (depth, src) in crate::sources(first).enumerate() {
         let pad = Pad::<Conn> {
             levels,
             extra: depth,

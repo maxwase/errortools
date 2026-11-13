@@ -1,20 +1,24 @@
 use core::{error::Error, fmt};
 
-use itertools::Itertools;
-
-use crate::{Format, chain};
+use crate::{Format, sources};
 
 /// One-line format. Joins the error and its sources with `": "`.
 ///
 /// For a different separator (or any per-element formatting), implement
-/// [`Format`] yourself using [`chain`].
+/// [`Format`] yourself using [`sources`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct OneLine;
 
 /// Walks the source chain and joins each error's `Display` output with `": "`.
 impl<E: Error + ?Sized> Format<E> for OneLine {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", chain(&error).format(": "))
+        for (index, error) in sources(&error).enumerate() {
+            if index > 0 {
+                f.write_str(": ")?;
+            }
+            write!(f, "{error}")?;
+        }
+        Ok(())
     }
 }
 

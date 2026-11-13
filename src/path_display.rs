@@ -14,7 +14,25 @@ use std::path::Path;
 /// default [`Colon`](crate::with_context::Colon) strategy. Prefer
 /// [`PathColon`](crate::with_context::PathColon) when you only need a path-aware strategy.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[must_use = "a formatting wrapper does nothing unless displayed"]
 pub struct DisplayPath<T>(T);
+
+impl<T> DisplayPath<T> {
+    /// Wraps `path` so it displays via [`Path::display`].
+    pub const fn new(path: T) -> Self {
+        DisplayPath(path)
+    }
+
+    /// Returns a reference to the wrapped path.
+    pub const fn inner(&self) -> &T {
+        &self.0
+    }
+
+    /// Unwraps the path.
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
 
 impl<P: AsRef<Path>> fmt::Display for DisplayPath<P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

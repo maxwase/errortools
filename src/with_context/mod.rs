@@ -88,6 +88,7 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// assert_eq!(w.to_string(), "1 -> boom");
 /// ```
 #[derive_where(Clone, Copy, PartialEq, Eq, Hash, Debug; C, E)]
+#[must_use = "a `WithContext` is an error value and should be returned or reported"]
 pub struct WithContext<C, E, WithContextFormat = Colon> {
     /// The context value tagging this error (e.g. a file path or step number).
     pub context: C,

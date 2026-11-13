@@ -52,7 +52,7 @@ pub use with_context::{ContextPath, WithPath};
 
 /// A static strategy for formatting a value to a [`fmt::Formatter`].
 ///
-/// Usually, the error is traversed via [`chain`] to format the entire source chain,
+/// Usually, the error is traversed via [`sources`] to format the entire source chain,
 /// but this is not required — the strategy can choose to ignore the chain or format
 /// non-error types as well.
 /// For example, an implementation of
@@ -84,6 +84,23 @@ pub use with_context::{ContextPath, WithPath};
 ///   own name and fields, hiding the phantom
 ///   strategy. Thin display adapters (`DisplayPath`) instead stay transparent
 ///   to mirror their target's `Debug`.
+///
+/// # Unsupported pairs
+/// A strategy that has no impl for the value type is a compile error at the
+/// point where the wrapper is displayed:
+/// ```compile_fail,E0277
+/// use errortools::{Formatted, Unicode};
+/// use std::io;
+///
+/// // `Unicode` is a connector set, not a `Format` strategy.
+/// let error = Formatted::<_, Unicode>::new(io::Error::other("boom"));
+/// println!("{error}");
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "the strategy `{Self}` cannot format `{E}`",
+    label = "`{Self}` does not implement `Format<{E}>`",
+    note = "implement `Format<{E}>` for `{Self}`, or pick a strategy that supports this error type"
+)]
 pub trait Format<E: ?Sized> {
     /// Writes `error` and its source chain to `f` using the strategy.
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result;
@@ -108,7 +125,20 @@ impl<T: fmt::Display + ?Sized> Format<T> for AsDisplay {
 ///
 /// The first item is `error` itself; subsequent items come from
 /// [`Error::source`].
-pub fn chain<'a>(error: &'a dyn Error) -> impl Iterator<Item = &'a dyn Error> + 'a {
+///
+/// ```
+/// use errortools::sources;
+/// use std::io;
+///
+/// #[derive(Debug, thiserror::Error)]
+/// #[error("Failed to read config")]
+/// struct ConfigError(#[source] io::Error);
+///
+/// let error = ConfigError(io::Error::other("disk full"));
+/// let messages: Vec<String> = sources(&error).map(ToString::to_string).collect();
+/// assert_eq!(messages, ["Failed to read config", "disk full"]);
+/// ```
+pub fn sources<'a>(error: &'a dyn Error) -> impl Iterator<Item = &'a dyn Error> + 'a {
     iter::successors(Some(error), |e| Error::source(*e))
 }
 
@@ -172,12 +202,23 @@ impl<E: Error + ?Sized> FormatError for E {}
 /// [`PhantomData`] avoids drop-check ownership of `F` and makes the wrapper
 /// `Send + Sync` regardless of `F`.
 #[derive_where(Clone, Copy, Default, PartialEq, Eq, Hash; E)]
+#[must_use = "a formatting wrapper does nothing unless displayed"]
 pub struct Formatted<E, F = OneLine>(E, PhantomData<fn() -> F>);
 
 impl<E, F> Formatted<E, F> {
     /// Wraps `error` so its `Display` impl uses the [`Format`] strategy `F`.
     pub const fn new(error: E) -> Self {
         Formatted(error, PhantomData)
+    }
+
+    /// Returns a reference to the wrapped error.
+    pub const fn inner(&self) -> &E {
+        &self.0
+    }
+
+    /// Unwraps the error, discarding the strategy.
+    pub fn into_inner(self) -> E {
+        self.0
     }
 }
 
@@ -217,6 +258,7 @@ impl<E: fmt::Debug, F: fmt::Debug + Default> fmt::Debug for Formatted<E, F> {
 /// `F` is a type-level tag, exactly as in [`Formatted`].
 #[derive_where(Clone, Copy)]
 #[derive_where(PartialEq, Eq, Hash; E)]
+#[must_use = "a formatting wrapper does nothing unless displayed"]
 pub struct FormattedRef<'a, E: ?Sized, F = OneLine>(&'a E, PhantomData<fn() -> F>);
 
 impl<'a, E: ?Sized, F> FormattedRef<'a, E, F> {

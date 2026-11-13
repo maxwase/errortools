@@ -11,14 +11,14 @@
 use core::{error::Error, fmt};
 use std::{io, marker::PhantomData};
 
-use errortools::{Format, FormatError, chain};
+use errortools::{Format, FormatError, sources};
 use itertools::Itertools;
 
 struct Arrow;
 
 impl<E: Error + ?Sized> Format<E> for Arrow {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", chain(&error).format(" -> "))
+        write!(f, "{}", sources(&error).format(" -> "))
     }
 }
 

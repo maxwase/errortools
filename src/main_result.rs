@@ -54,6 +54,7 @@ pub type MainResultWithSuggestion<E, F = OneLine, T = ()> =
 // Must never implement `core::error::Error` (nor may `Formatted`): the blanket
 // `From<S: Error>` impl below would then overlap with std's `From<T> for T`.
 #[derive_where(Clone, Copy, Default, PartialEq, Eq, Hash; E)]
+#[must_use = "a `MainError` should be returned from `main` or displayed"]
 pub struct MainError<E, F = OneLine>(E, PhantomData<fn() -> F>);
 
 impl<E, F> MainError<E, F> {
@@ -114,6 +115,7 @@ pub type WithSuggestion<F = OneLine, Sep = NewLine> = (F, Then<Sep, crate::Sugge
 /// output instead. [`MainError`] is the purpose-built wrapper for `main`; this
 /// one is a standalone utility for any other `Debug`-printing context.
 #[derive(Copy, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[must_use = "a formatting wrapper does nothing unless printed"]
 pub struct DisplaySwapDebug<T>(T);
 
 impl<T> From<T> for DisplaySwapDebug<T> {
@@ -123,9 +125,19 @@ impl<T> From<T> for DisplaySwapDebug<T> {
 }
 
 impl<T> DisplaySwapDebug<T> {
-    /// Wraps `error`, swapping its `Debug` and `Display` impls.
-    pub fn new(value: T) -> Self {
+    /// Wraps `value`, swapping its `Debug` and `Display` impls.
+    pub const fn new(value: T) -> Self {
         DisplaySwapDebug(value)
+    }
+
+    /// Returns a reference to the wrapped value.
+    pub const fn inner(&self) -> &T {
+        &self.0
+    }
+
+    /// Unwraps the value.
+    pub fn into_inner(self) -> T {
+        self.0
     }
 }
 

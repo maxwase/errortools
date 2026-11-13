@@ -66,7 +66,7 @@ use core::{
     fmt::{self, Display},
 };
 
-use crate::{Format, chain, with_context::WithContext};
+use crate::{Format, sources, with_context::WithContext};
 
 mod bullets;
 mod list;
@@ -145,7 +145,7 @@ where
         F::fmt(self.0, f)?;
         // `chain` yields the error itself first; skipping it leaves exactly
         // the sources (`WithContext::source` starts past the inner error too).
-        for src in chain(&self.0.error).skip(1) {
+        for src in sources(&self.0.error).skip(1) {
             write!(f, ": {src}")?;
         }
         Ok(())
