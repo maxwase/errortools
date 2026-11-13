@@ -50,7 +50,7 @@ fn main() {
     println!("{}", all.bullets());
 
     println!();
-    println!("=== Joined (deep one-line) ===");
+    println!("=== One line (deep) ===");
     println!("{}", all.one_line());
 
     println!();

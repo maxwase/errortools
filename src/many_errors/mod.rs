@@ -149,7 +149,7 @@ pub use strategy::{Bullets, Joined, List, Tree};
 /// labels through `GF`, and those strategies decide what each context must
 /// implement (the default [`Colon`]/[`AsDisplay`] need
 /// [`Display`]; a path context works with
-/// [`PathColon`](crate::with_context::PathColon) and no `Display` at all).
+/// `PathColon` (requires `std`) and no `Display` at all).
 /// Only putting a `ManyErrors` in an [`Error`] *position* (e.g. as a
 /// `#[source]`) additionally requires `C: Debug` and `GC: Debug`, because
 /// [`Error`] has `Debug` as a supertrait and the bound propagates through the
@@ -463,7 +463,7 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
         crate::FormattedRef::new(self)
     }
 
-    /// Renders as a dotted numbered list (`1.  1.1.  1.2.  2.`).
+    /// Renders as a numbered list. Nested groups are indented and restart at `1.`.
     pub fn list(&self) -> crate::FormattedRef<'_, Self, List> {
         crate::FormattedRef::new(self)
     }

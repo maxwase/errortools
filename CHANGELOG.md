@@ -7,6 +7,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-13
+
+### Added
+
+- Tuple strategies: tuples of 2 to 6 `Format` strategies implement `Format` and run left to right against the same value, e.g. `(OneLine, NewLine, Suggestion)` or `(ContextField, ColonSpace, ErrorField)`.
+- `separator::Lit<const A: char, const B: char>`: writes one or two fixed characters, e.g. `Lit<'-', '>'>` writes `->`. `NewLine`, `Space`, `ColonChar` and `ColonSpace` are aliases of it.
+- `separator::Then<Sep, R>`: writes `Sep` and then `R`, but only when `R` renders something.
+- `FormattedRef<'a, E, F>`: the borrowing twin of `Formatted`. Its `Display` needs only `F: Format<E>`, and `E` may be unsized (`dyn Error`).
+- `MainError<E, F>`: the error half of `MainResult`. `From<S>` is implemented for every `S: Error` with `E: From<S>`, so `?` in `main` converts `E` itself and any error `E` has a `From` impl for, in one hop.
+- `ResultExt::{context, with_context}` on `Result`: tags the error with a context value and yields a `WithContext`. The format strategy is inferred from the `From` target at the `?` or from the return type.
+- `Detached` (requires `alloc`): an owned, cloneable, `Send + Sync + 'static` snapshot of an error chain, taken with `FormatError::detach()` or built with `Detached::new` and `Detached::with_source`. It implements `Error` and renders through every strategy like the original.
+- `ManyErrors::collect_results`: splits `(context, Result)` pairs into `Ok(Vec<T>)` or the aggregate of every failure.
+- `ManyErrors`: `FromIterator` and `Extend` accept `(C, Result<T, E>)`; `Ok` items are skipped.
+- `ManyErrors::chain()`: inherent method, same rendering as `tree()`. Together with the inherent `one_line()` it shadows the shallow `FormatError` method of the same name on a concrete `ManyErrors`.
+- `inner()` and `into_inner()` on `Formatted`, `MainError`, `DisplaySwapDebug` and `DisplayPath`.
+- `DisplayPath::new`, a `const fn` constructor next to the existing `From` impl.
+- `#[diagnostic::on_unimplemented]` messages on `Format`, `Suggest`, `Connectors` and `TreeConnectors` that name the strategy and the value type.
+- Crate-root exports for the types used in signatures: `Lit`, `Then`, `NewLine`, `Space`, `ColonChar`, `ColonSpace`, `Empty`, `ContextField`, `ErrorField`, `ContextPath`, `WithPath`, `ResultExt`, `ErrorCount`, `LeafChain`.
+- Static assertions that the wrappers are `Send + Sync` whatever the strategy type.
+
+### Changed
+
+- **Breaking:** `FormatError::{one_line, chain, suggestion, formatted}` and the `ManyErrors` helpers (`tree`, `list`, `bullets`, `one_line`, `formatted`) return `FormattedRef<'_, Self, F>` instead of `Formatted<&Self, F>`. Code that only displays the result is unaffected.
+- **Breaking:** `MainResult<E, F, T>` is `Result<T, MainError<E, F>>` instead of `Result<T, DisplaySwapDebug<Formatted<E, F>>>`. The same change applies to `MainResultWithSuggestion`.
+- **Breaking:** `WithSuggestion<F, Sep>` is `(F, Then<Sep, Suggestion>)`. An error whose hint renders empty no longer prints a trailing separator.
+- **Breaking:** `with_context::Colon` and `with_context::PathColon` are tuples: `(ContextField, ColonSpace, ErrorField)` and `(ContextPath, ColonSpace, ErrorField)`.
+- **Breaking:** `NewLine`, `Space`, `ColonChar` and `ColonSpace` are type aliases of `Lit` instead of separate structs.
+- **Breaking:** the free function `chain()` is renamed `sources()`, so it no longer shares a name with `FormatError::chain()` and the `Chain` strategy.
+- **Breaking:** `ManyErrors::map_err` and `ManyErrors::map_context` keep the `F` and `GF` format parameters instead of resetting them to the defaults.
+- **Breaking:** `Iter`, `IterMut` and `IntoIter` are no longer exported at the crate root; they stay under `many_errors`.
+- **Breaking:** `path_display` is a private module; `DisplayPath` is exported at the crate root only. `many_errors` no longer re-exports `Ascii`, `Unicode`, `Connectors` and `TreeConnectors`.
+- `Suggestion` formats any `E: Suggest`; the `E: Error` bound is gone.
+- The `Error` impls and rendering of `WithContext`, `ManyErrors`, `Node` and `Subgroup` no longer require `E: 'static`.
+- `DisplaySwapDebug::new` is a `const fn`, like the constructors of the other wrappers. `Formatted`, `FormattedRef`, `MainError`, `DisplaySwapDebug` and `WithContext` are `#[must_use]`.
+- `itertools` is a dev-dependency only. The crate's single runtime dependency is `derive-where`.
+
+### Removed
+
+- **Breaking:** `Add<L, R>` and the `separator` aliases `WithSep`, `WithSpace`, `WithNewLine`, `WithColonSpace`. Use tuples.
+- **Breaking:** the `impl_ref_format!` macro and the `Format<&T>` forwarders on the built-in strategies. `FormattedRef` makes them unnecessary.
+- **Breaking:** `From<E> for DisplaySwapDebug<Formatted<E, F>>`. `MainError` carries the `?` conversion now.
+- **Breaking:** `with_context::WithContextColon` and `with_context::WithContextPathColon`.
+- **Breaking:** `ManyErrors::joined()` and `ManyErrors::ok()`.
+
+### Migration
+
+| 0.3 | 0.4 |
+|---|---|
+| `Add<L, R>` | `(L, R)` |
+| `Add<Add<A, B>, C>` | `(A, B, C)` |
+| `WithSep<L, Sep, R>` | `(L, Sep, R)` |
+| `WithSpace<L, R>` | `(L, Space, R)` |
+| `WithNewLine<L, R>` | `(L, NewLine, R)` |
+| `WithColonSpace<L, R>` | `(L, ColonSpace, R)` |
+| `impl_ref_format!(MyFmt)` | delete it; implement `Format<T>` only |
+| `impl Format<&T> for MyFmt` | delete it; implement `Format<T>` only |
+| `Formatted<&E, F>` as a return type of the borrowing helpers | `FormattedRef<'_, E, F>` |
+| `DisplaySwapDebug<Formatted<E, F>>` | `MainError<E, F>` |
+| `DisplaySwapDebug::from(Formatted::new(e))` | `MainError::new(e)` |
+| `.map_err(AppError::from)?` in `main` | `?` |
+| `.map_err(\|e\| WithContext::new(ctx, e))` | `.context(ctx)` |
+| `WithContextColon<C, E>` | `WithContext<C, E>` |
+| `WithContextPathColon<C, E>` | `WithPath<C, E>` |
+| `errortools::chain(&error)` | `errortools::sources(&error)` |
+| `errs.joined()` | `errs.one_line()` |
+| `errs.ok()` | `errs.is_empty()` (`.then_some(())` for the `Option`) |
+| `errortools::{Iter, IterMut, IntoIter}` | `errortools::many_errors::{Iter, IterMut, IntoIter}` |
+| `errortools::path_display::DisplayPath` | `errortools::DisplayPath` |
+| `errortools::many_errors::{Ascii, Unicode, Connectors, TreeConnectors}` | `errortools::{Ascii, Unicode, Connectors, TreeConnectors}` |
+| `impl<E: Error + Suggest> Format<E>` bound copied from `Suggestion` | `E: Suggest` is enough |
+
+## [0.3.1] - 2026-06-25
+
+### Added
+
+- `core::ops::Add` and `AddAssign` on `ManyErrors` for another `ManyErrors`, a `(C, E)` pair, a `(C, Result<T, E>)` pair (`Ok` is skipped), and an `Option` of any of those (`None` is skipped).
+- `ManyErrors::push_some` and `ManyErrors::push_result`: push a leaf only for `Some` / `Err`.
+- `ManyErrors::into_group`: wraps the aggregate as a labeled sub-group of a new `ManyErrors`.
+- `ManyErrors::ok` and `ManyErrors::err`: `Option` views of the aggregate, mirroring `Result::ok` / `Result::err`.
+- `ManyErrors::map_err` and `ManyErrors::map_context`: map every leaf error or leaf context, groups included.
+- `ManyErrors::one_line()`: inherent method that renders like `joined()` and shadows the shallow `FormatError::one_line`.
+- `From<(C, Result<T, E>)> for ManyErrors`.
+
+### Changed
+
+- `ManyErrors` docs: a warning that `FormatError::one_line` / `FormatError::chain` do not walk the aggregate, and the recommended way to embed a `ManyErrors` in an error enum.
+
 ## [0.3.0] - 2026-06-23
 
 ### Added
@@ -62,7 +149,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DisplaySwapDebug<E>` wrapper that swaps `Debug`/`Display`.
 - `no_std` support via `default-features = false`.
 
-[Unreleased]: https://github.com/maxwase/errortools/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/maxwase/errortools/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/maxwase/errortools/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/maxwase/errortools/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/maxwase/errortools/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/maxwase/errortools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/maxwase/errortools/releases/tag/v0.1.0

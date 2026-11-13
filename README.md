@@ -80,10 +80,11 @@ Error: Failed to load config
 Ever needed to wrap `io::Error` just to attach a path? Or keep a retry attempt around? That's what `WithContext<C, E>` is for. No more ad-hoc single-variant wrappers that mess up error chains. `WithContext` holds a context value next to an error. The pair displays through whatever strategy you pick: `Colon` by default, `PathColon` if the context is a path. `FormatError` skips the wrapped error itself when it walks the chain, so it never shows up twice.
 
 `PathColon` calls `Path::display` for you, so `&Path` and `PathBuf` go
-straight in. The `WithPath` alias names the type:
+straight in. The `WithPath` alias names the type, and `ResultExt::context`
+builds the pair on a `Result`:
 
 ```rust,no_run
-use errortools::{MainResult, WithContext, with_context::WithPath};
+use errortools::{MainResult, ResultExt, WithPath};
 use std::{fs::File, io, path::Path};
 
 #[derive(Debug, thiserror::Error)]
@@ -92,7 +93,7 @@ struct Error(#[from] WithPath<&'static Path, io::Error>);
 
 fn main() -> MainResult<Error> {
     let path = Path::new("no/such/dir/foo.txt");
-    File::create(path).map_err(|e| Error::from(WithContext::new(path, e)))?;
+    File::create(path).context(path)?;
     Ok(())
 }
 ```
@@ -101,10 +102,15 @@ fn main() -> MainResult<Error> {
 Error: Failed to create file: no/such/dir/foo.txt: No such file or directory (os error 2)
 ```
 
+The strategy is never named at the call site: it is inferred from the `From` target at the `?` or from the return type. `with_context(|| ...)` builds the context only on `Err`.
+
 Retry attempt numbers fit too. The default `Colon` strategy takes any
 `Display` pair, and `usize` is `Display`:
 
-```rust,ignore
+```rust
+use errortools::{ResultExt, WithContext};
+use std::{fs::File, io, num::NonZeroUsize, path::Path};
+
 fn create_with_retry(
     path: &Path,
     attempts: NonZeroUsize,
@@ -113,7 +119,7 @@ fn create_with_retry(
     for _ in 1..last {
         if let Ok(f) = File::create(path) { return Ok(f); }
     }
-    File::create(path).map_err(|e| WithContext::new(last, e))
+    File::create(path).context(last)
 }
 ```
 
@@ -123,10 +129,10 @@ The [`with_context`](https://github.com/maxwase/errortools/blob/master/examples/
 Need a different look? `WithContext` formats through any `F: Format<WithContext<C, E, F>>`,
 so there are two ways to customize it:
 
-1. **Compose** with the built-in field extractors and separators:
-   `type SpacePair = WithSpace<ContextField, ErrorField>;` swaps `": "`
-   for a single space. Same recipe for any delimiter you can write as a
-   `Format` tag.
+1. **Compose** the built-in field extractors and separators in a tuple:
+   `type SpacePair = (ContextField, Space, ErrorField);` swaps `": "`
+   for a single space. Same recipe for any delimiter: `Lit<'-', '>'>`
+   writes `->`.
 2. **Write a one-shot impl** when the layout is unusual:
    `impl<C: Display, E: Display, F> Format<WithContext<C, E, F>> for MyFmt { ... }`.
    You declare your own bounds -- `Colon` asks for `Display`, `PathColon` asks
@@ -168,61 +174,61 @@ if let Err(e) = do_thing() {
 }
 ```
 
+These helpers borrow the error and return a `FormattedRef`, so they work on unsized errors such as `&dyn Error` too.
+
 ## Custom formats
 
-Implement the `Format<E>` trait on a unit type. `E` is generic so your strategy can require extra bounds on the error type (e.g. `Suggest` for the suggestion strategy):
+Implement the `Format<E>` trait on a unit type. `E` is generic so your strategy can require extra bounds on the error type (e.g. `Suggest` for the suggestion strategy). `sources` iterates over the error and its source chain; the join here comes from `itertools`, which you add yourself:
 
-```rust,ignore
+```rust
 use core::{error::Error, fmt};
-use errortools::{Format, FormatError, chain};
+use errortools::{Format, FormatError, sources};
 use itertools::Itertools;
+use std::io;
 
 struct Arrow;
 impl<E: Error + ?Sized> Format<E> for Arrow {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", chain(&error).format(" -> "))
+        write!(f, "{}", sources(&error).format(" -> "))
     }
 }
 
-println!("{}", my_error.formatted::<Arrow>()); // outer -> middle -> inner
+#[derive(Debug, thiserror::Error)]
+#[error("outer")]
+struct Outer(#[source] io::Error);
+
+let error = Outer(io::Error::other("inner"));
+assert_eq!(error.formatted::<Arrow>().to_string(), "outer -> inner");
 ```
 
 ## Combining strategies
 
-`Add<L, R>` glues two `Format` strategies together. Both run against the same value, left then right. There's no built-in separator, drop a separator strategy (`NewLine`, `Space`, `ColonChar`, `ColonSpace`, `Empty`) in between, or reach for the three-arg `WithSep<L, Sep, R>` alias when you'd otherwise nest:
+A tuple of `Format` strategies is a strategy: every element runs against the same value, left to right. Tuples of 2 to 6 elements work. Put a separator (`NewLine`, `Space`, `ColonChar`, `ColonSpace`, or any `Lit<A, B>`) where you want one:
 
-```rust,ignore
-use errortools::{Formatted, OneLine, Suggestion, separator::{NewLine, WithSep}};
+```rust
+use errortools::{NewLine, OneLine, Suggestion, Then};
 
-// Same as Add<Add<OneLine, NewLine>, Suggestion>. Renders:
 // "<one-line chain>\n<top-level suggestion>"
-type Brief = WithSep<OneLine, NewLine, Suggestion>;
+type Brief = (OneLine, NewLine, Suggestion);
 
-eprintln!("{}", Formatted::<_, Brief>::new(err));
+// The same, but the newline is written only when there is a suggestion.
+type BriefLazy = (OneLine, Then<NewLine, Suggestion>);
 ```
 
-For the common separators there are zero-think aliases -- `WithSpace<L, R>`,
-`WithNewLine<L, R>`, `WithColonSpace<L, R>` -- all in `errortools::separator`:
+Use either one as `error.formatted::<Brief>()`, `Formatted::<_, Brief>::new(error)` or `MainResult<E, Brief>`. `Then<Sep, R>` writes `Sep` only if `R` renders something. `WithSuggestion<F, Sep>` is the alias for the second shape, and `MainResultWithSuggestion<E>` uses it in `main`.
 
-```rust,ignore
-use errortools::{Formatted, OneLine, Suggestion, separator::WithNewLine};
+Bounds compose: `(OneLine, Suggestion)` only implements `Format<E>` when
+`E: Error + Suggest`, because `OneLine` needs `Error` and `Suggestion` needs `Suggest`.
 
-type Brief = WithNewLine<OneLine, Suggestion>;
-eprintln!("{}", Formatted::<_, Brief>::new(err));
-```
-
-Bounds compose: `Add<OneLine, Suggestion>` only implements `Format<E>` when
-`E: Error + Suggest`, because `Suggestion`'s impl carries that bound.
-
-The same combinator powers the `WithContext` default -- `Colon` is just a type
-alias for `WithColonSpace<ContextField, ErrorField>`, where
+Tuples also power the `WithContext` default: `Colon` is a type
+alias for `(ContextField, ColonSpace, ErrorField)`, where
 `ContextField`/`ErrorField` are extractor strategies that read the pair's
 fields. To get a different delimiter, swap one piece:
 
-```rust,ignore
-use errortools::{WithContext, separator::WithSpace, with_context::{ContextField, ErrorField}};
+```rust
+use errortools::{ContextField, ErrorField, Space, WithContext};
 
-type SpacePair = WithSpace<ContextField, ErrorField>;
+type SpacePair = (ContextField, Space, ErrorField);
 let w = WithContext::<_, _, SpacePair>::new("step", "boom");
 assert_eq!(w.to_string(), "step boom");
 ```
@@ -230,11 +236,11 @@ assert_eq!(w.to_string(), "step boom");
 ## Suggestions
 
 For "Did you mean..." hints, implement `Suggest` on your error type and call
-`error.suggestion()`:
+`error.suggestion()`, or render the error and its hint together with `WithSuggestion`:
 
-```rust,ignore
+```rust
 use core::fmt;
-use errortools::{FormatError, Suggest};
+use errortools::{FormatError, Suggest, WithSuggestion};
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
@@ -253,9 +259,16 @@ impl Suggest for Error {
     }
 }
 
-eprintln!("{}\n{}", Error::NoConfig.one_line(), Error::NoConfig.suggestion());
-// Config file missing
-// Did you copy config.example.toml to config.toml?
+assert_eq!(
+    Error::NoConfig.suggestion().to_string(),
+    "Did you copy config.example.toml to config.toml?"
+);
+assert_eq!(
+    Error::NoConfig.formatted::<WithSuggestion>().to_string(),
+    "Config file missing\nDid you copy config.example.toml to config.toml?"
+);
+// No hint, no trailing newline.
+assert_eq!(Error::Network.formatted::<WithSuggestion>().to_string(), "Network down");
 ```
 
 Only the top-level error's hint is printed, the source chain isn't walked. This decision is intentional: The underlying hint may be irrelevant in the context of the top-level error, and printing it may just add noise.
@@ -266,17 +279,19 @@ The idea is that every error that is supposed to have a suggestion should implem
 
 Some operations shouldn't stop at the first failure -- validating a config, deploying to every region, parsing a batch. You want all of them, grouped and readable. That's `ManyErrors<C, E>`: a context-tagged collection you can render as a tree, list, or single line.
 
-```rust,ignore
+```rust
 use errortools::ManyErrors;
+use std::io;
 
-let mut errs = ManyErrors::new();
-errs.push("eu-west-1", RegionError::Refused);
-errs.push("us-east-1", RegionError::Refused);
+let mut errs: ManyErrors<&str, io::Error> = ManyErrors::new();
+errs.push("eu-west-1", io::Error::other("connection refused"));
+errs.push("us-east-1", io::Error::other("connection refused"));
 
-errs.into_result(())?; // Ok if empty, Err(ManyErrors) otherwise
+let result = errs.into_result(()); // Ok if empty, Err(ManyErrors) otherwise
+assert!(result.is_err());
 ```
 
-It costs nothing until it has to: `None` while empty, one inline slot for the first error, a `Vec` only once a second arrives. You can also collect straight from an iterator of `(context, error)` pairs or `WithContext` values -- including itertools' `partition_result`.
+It costs nothing until it has to: `None` while empty, one inline slot for the first error, a `Vec` only once a second arrives. You can also collect straight from an iterator of `(context, error)` pairs, `(context, Result)` pairs or `WithContext` values -- including itertools' `partition_result`. `ManyErrors::collect_results` splits `(context, Result)` pairs into all the `Ok` values or the aggregate of every failure.
 
 Group related failures with `push_group` and the shapes nest. `tree()` gives the Unicode tree, walking each error's source chain:
 
@@ -294,20 +309,20 @@ The default `Display` (`{errs}`) is deliberately a shallow one-line *summary* --
 2 errors: us-east-1 (2 errors: i-0a1: connection refused; i-0b2: connection refused); eu-west-1: connection refused
 ```
 
-For the full picture, the shapes are inherent helpers, no turbofish -- `tree()` and `joined()` walk the source chains, `list()` and `bullets()` too:
+For the full picture, the shapes are inherent helpers, no turbofish. All of them walk the source chains:
 
 ```rust,ignore
-println!("{}", errs.tree());      // Unicode tree (above)
+println!("{}", errs.tree());      // Unicode tree (above); chain() is the same
 println!("{}", errs.list());      // numbered outline
 println!("{}", errs.bullets());   // • bulleted
-println!("{}", errs.joined());    // ;-separated one line, parens around groups
+println!("{}", errs.one_line());  // ;-separated one line, parens around groups
 ```
 
 For full control -- ASCII connectors, no count header -- go through `formatted`: `errs.formatted::<Tree<Ascii, false>>()`. That's an inherent method, not the `FormatError` one, and the difference matters: the trait version requires `ManyErrors: Error`, which drags `Debug` bounds onto your context types. The inherent one has no bounds at all. Wrapping always compiles; whether the combination can print is decided by the strategy's own `Format` bounds, at the call site that actually prints.
 
 The same rule runs through the whole rendering path: no shape demands anything from a context directly. Leaves print through the leaf strategy, group labels through the label strategy, and those decide the bounds. A `PathBuf` context with `PathColon` renders in every shape even though `PathBuf` has no `Display`.
 
-Need a shape of your own? Implement `Format<ManyErrors<...>>` and match on the public `ManyErrors` / `Node` variants. The same helpers the built-in shapes use are public so your output stays consistent: `many_errors::strategy::{ErrorCount, LeafChain, NO_ERRORS}`, `indent::indented` for re-indenting multiline content, and the `impl_ref_format!` macro for the `&T` trampoline. See the `many_errors::strategy` module docs for a worked example.
+Need a shape of your own? Implement `Format<ManyErrors<...>>` and match on the public `ManyErrors` / `Node` variants. The same helpers the built-in shapes use are public so your output stays consistent: `ErrorCount`, `LeafChain`, `many_errors::strategy::NO_ERRORS`, and `indent::indented` for re-indenting multiline content. See the `many_errors::strategy` module docs for a worked example.
 
 Group labels can differ from leaf contexts via the third parameter, `ManyErrors<C, E, GC>`, but `GC` defaults to `C`, so the common case stays two params.
 
@@ -324,19 +339,53 @@ for node in &errs {
 }
 ```
 
-One footgun to know about: `errs.one_line()` and `errs.chain()` compile (a `ManyErrors` is an error) but print the shallow summary, because `source()` is `None` -- an aggregate has no single linear cause. `joined()` and `tree()` are the deep versions. Same logic applies in reverse: a `ManyErrors` buried in another error's `#[source]` chain shows up as one summary line. If you want its branches rendered, lift it into `push_group` instead.
+One footgun to know about: on a concrete `ManyErrors`, `errs.one_line()` and `errs.chain()` are inherent methods and render the aggregate deeply. Through the `FormatError` trait (a generic `E: Error` or a `&dyn Error`) the same names print only the shallow summary, because `source()` is `None` -- an aggregate has no single linear cause. Same logic applies in reverse: a `ManyErrors` buried in another error's `#[source]` chain shows up as one summary line. If you want its branches rendered, lift it into `push_group` instead, or render `tree()` inside the outer error's message.
+
+## Async
+
+Nothing here depends on a runtime, so `MainResult` works under any of them:
+
+```rust,ignore
+use errortools::MainResult;
+
+#[tokio::main]
+async fn main() -> MainResult<AppError> {
+    let config = tokio::fs::read_to_string("config.toml").await?; // io::Error -> AppError
+    Ok(())
+}
+```
+
+The wrappers (`MainError`, `Formatted`, `WithContext`, `ManyErrors`, ...) are `Send + Sync` whenever the values they hold are, whatever the strategy type.
+
+When an error has to cross a task or channel boundary and the original is not `Clone` (or not `Send`), `error.detach()` takes a `Detached`: an owned, cloneable snapshot of the messages in the chain. It is an error itself and renders through every strategy like the original. `ManyErrors::collect_results` then gathers the results of joined tasks:
+
+```rust
+use errortools::{Detached, ManyErrors, FormatError};
+use std::{io, thread};
+
+let handles = ["a", "b"].map(|name| {
+    let task = || Err::<(), _>(io::Error::other("boom").detach());
+    (name, thread::spawn(task))
+});
+let results = handles.map(|(name, handle)| (name, handle.join().unwrap()));
+
+let errs = ManyErrors::<_, Detached>::collect_results(results).unwrap_err();
+assert_eq!(errs.one_line().to_string(), "2 errors: a: boom; b: boom");
+```
 
 ## How it works
 
 `MainResult<E, F>` is a type alias:
 
 ```rust
-use errortools::{DisplaySwapDebug, Formatted, OneLine};
+use errortools::{MainError, OneLine};
 
-pub type MainResult<E, F = OneLine, T = ()> = Result<T, DisplaySwapDebug<Formatted<E, F>>>;
+pub type MainResult<E, F = OneLine, T = ()> = Result<T, MainError<E, F>>;
 ```
 
-`DisplaySwapDebug` swaps the `Debug` and `Display` impls of its inner type. When `main` prints the error via `Debug`, it ends up reaching the `Display` output instead, formatted by the chosen strategy. `?` converts your error automatically via the blanket `From` impl.
+`MainError` owns your error and runs the strategy `F` over it for both `Debug` and `Display`. `main` prints a returned error via `Debug`, so it prints the formatted text. `?` converts through `impl<S: Error, E: From<S>, F> From<S> for MainError<E, F>`: your error `E` itself, and any error `E` has a `From` impl for, reach `main` in one hop with no `map_err`.
+
+`DisplaySwapDebug` is still there as a standalone wrapper that swaps the `Debug` and `Display` impls of any type.
 
 ## Examples
 
@@ -358,10 +407,10 @@ Run with: `cargo run --example <name>`.
 
 | Feature | Default | Effect |
 |---|---|---|
-| `std` | yes | Path-aware strategies (`PathColon`, `DisplayPath`). Implies `alloc`. |
-| `alloc` | via `std` | `ManyErrors` and the aggregate shapes (`Tree`, `List`, `Bullets`, `Joined`). |
+| `std` | yes | Path-aware strategies (`PathColon`, `WithPath`, `DisplayPath`). Implies `alloc`. |
+| `alloc` | via `std` | `ManyErrors` and the aggregate shapes (`Tree`, `List`, `Bullets`, `Joined`), `Detached`. |
 
-Without either, the per-error core still works: `MainResult`, `OneLine`, `Chain`, `WithContext`, `Suggestion`, `Add`.
+Without either, the per-error core still works: `MainResult`, `OneLine`, `Chain`, `WithContext`, `ResultExt`, `Suggestion`, tuple strategies.
 
 ## Skills
 
