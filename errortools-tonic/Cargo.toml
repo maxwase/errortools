@@ -1,0 +1,31 @@
+[package]
+name = "errortools-tonic"
+authors = ["Max Wase <max.vvase@gmail.com>"]
+version = "0.1.0"
+edition = "2024"
+description = "Maps errortools errors onto gRPC tonic::Status and back."
+repository = "https://github.com/maxwase/errortools"
+documentation = "https://docs.rs/errortools-tonic"
+license = "MIT"
+readme = "README.md"
+keywords = ["error", "grpc", "tonic", "status", "errortools"]
+categories = ["rust-patterns", "network-programming"]
+include = ["src/**/*.rs", "tests/**/*.rs", "README.md", "CHANGELOG.md", "LICENSE*"]
+
+[dependencies]
+errortools = { path = "..", version = "0.4" }
+tonic = { version = "0.14.9", default-features = false }
+tonic-types = "0.14.9"
+
+[dev-dependencies]
+bytes = "1"
+http = "1"
+hyper-util = { version = "0.1", features = ["tokio"] }
+pretty_assertions = "1.4.1"
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "macros", "rt", "sync"] }
+tokio-stream = "0.1"
+# The in-process test needs tonic's HTTP/2 server and client; the library
+# itself keeps them off.
+tonic = { version = "0.14.9", default-features = false, features = ["channel", "server"] }
+tower = { version = "0.5", features = ["util"] }

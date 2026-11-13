@@ -56,3 +56,25 @@ jobs:
         run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
       - name: cargo test
         run: cargo test ${{ matrix.features }}
+
+  # The feature matrix above runs without `-p`, so it covers the root package
+  # (`errortools`) only. The tonic crate has no features and gets its own job.
+  tonic:
+    name: errortools-tonic (clippy + test + doc)
+    runs-on: ubuntu-24.04-arm
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2.9.1
+        with:
+          key: tonic
+      - name: cargo clippy
+        run: cargo clippy -p errortools-tonic --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test -p errortools-tonic
+      - name: cargo doc
+        run: cargo doc -p errortools-tonic --no-deps
