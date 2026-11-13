@@ -5,40 +5,37 @@ description: >
   touches errors in any form: Result, unwrap, expect, thiserror, anyhow,
   Box<dyn Error>, error logging, or the errortools crate. Routes to the right
   sub-skill: structured-error-handling for designing error types and source
-  chains, using-errortools for MainResult / FormatError / WithContext / ManyErrors,
+  chains, using-errortools for MainResult / .context() / FormatError /
+  ManyErrors / Detached and for upgrading errortools 0.3 code to 0.4,
   migrating-from-unstructured for moving away from anyhow or scattered unwraps.
   When in doubt, load this skill first.
 ---
 
-# Rust error-handling
+# Rust error handling
 
-Three skills cover the full error-handling surface. Load the one that matches
-your task; they cross-link where they overlap.
+Three skills cover the surface. Load the one that matches the task; most tasks
+touch two, so load both when in doubt.
 
 | Task | Skill |
 |---|---|
-| Design error enums, chain sources, choose `#[source]` vs `#[from]`, `map_err` conventions | `structured-error-handling` |
-| Use `MainResult`, `FormatError`, `WithContext`, `ManyErrors`, custom format strategies | `using-errortools` |
-| Migrate from `anyhow` or scattered `unwrap`/`expect`/`Box<dyn Error>` | `migrating-from-unstructured` |
-
-Most tasks touch more than one area, so load both if needed.
+| Design error enums, choose `#[source]` vs `#[from]`, word messages, convert at call sites, test errors | `structured-error-handling` |
+| Report from `main`, attach context with `.context(..)?`, log a chain, collect batch failures, move an error across a task or channel, custom formats | `using-errortools` |
+| Replace `anyhow`, `Box<dyn Error>`, `String` errors, `unwrap`/`expect`, `eprintln!` + `exit(1)` | `migrating-from-unstructured` |
+| Code written against errortools 0.3 no longer compiles | `using-errortools`, then its `references/upgrading-to-0.4.md` |
 
 ## Adding the dependency
 
-If the project does not depend on `errortools` yet:
-
 ```toml
 [dependencies]
-errortools = "0.3"
+errortools = "0.4"
 thiserror  = "2"
 ```
 
-`errortools` is `no_std`-capable; pass `default-features = false` for embedded
-targets. The `alloc` feature (implied by `std`) gates `ManyErrors` and the
-aggregate render shapes.
+`errortools` works in `no_std` with `default-features = false`. The `alloc`
+feature (implied by `std`) gates `ManyErrors` and `Detached`; `std` gates the
+path helpers (`WithPath`, `ContextPath`, `DisplayPath`).
 
 ## References
 
 - API docs: <https://docs.rs/errortools>
-- README: <https://github.com/maxwase/errortools/blob/master/README.md>
 - Runnable examples: <https://github.com/maxwase/errortools/tree/master/examples>

@@ -1,211 +1,218 @@
 ---
 name: using-errortools
 description: >
-  How to use the errortools crate for formatting and context in Rust projects.
-  Use whenever a task involves MainResult, FormatError, WithContext, WithPath,
-  ManyErrors, custom Format strategies, or choosing how to render an error chain
-  for a terminal, log, or user message. Trigger on: MainResult, FormatError,
-  one_line(), chain(), formatted(), WithContext, WithPath, ManyErrors, Format
-  trait, OneLine, Chain, Suggestion -- even when only one of these is mentioned.
-  See structured-error-handling for designing the error types themselves.
+  How to use the errortools crate (0.4) to report, tag, aggregate and transport
+  Rust errors. Use whenever a task involves returning errors from main
+  (including async main), attaching a path / ID / attempt to an error with
+  .context(), logging an error chain, collecting failures from a batch or a set
+  of tasks, sending an error across a thread, task or channel, "did you mean"
+  hints, custom error formats, or upgrading errortools 0.3 code. Trigger on:
+  MainResult, MainError, ResultExt, .context(, .with_context(, WithContext,
+  WithPath, FormatError, one_line(), chain(), formatted(), detach(), Detached,
+  ManyErrors, collect_results, Format trait, OneLine, Chain, Tree, Suggest,
+  Suggestion, Then, Lit, sources() -- even when only one is mentioned. See
+  structured-error-handling for designing the error types themselves.
 ---
 
 # using-errortools
 
-This skill covers the runtime surface of the `errortools` crate: rendering error
-chains, attaching incidental context without new variants, aggregating batch
-failures, and defining custom format strategies. For designing error enums and
-`#[source]`/`#[from]` conventions, see `structured-error-handling`.
+The runtime surface of `errortools` 0.4. Error type design (`#[source]` vs
+`#[from]`, message wording) is in `structured-error-handling`. Everything named
+here is exported from the crate root unless a module path is shown.
 
-## Core API
-
-| Item | Purpose |
+| Need | Reach for |
 |---|---|
-| `MainResult<E, F = OneLine, T = ()>` | Return type for `fn main`. Renders `E` via strategy `F` instead of `Debug`. `T` lets `main` return `ExitCode`. |
-| `OneLine` | Default strategy: error + sources joined with `": "`. |
-| `Chain<C = Unicode>` | Per-error indented source-chain ladder (`└─`). |
-| `Tree` / `List` / `Bullets` / `Joined` | Aggregate `ManyErrors` render shapes (needs `alloc`). |
-| `FormatError` | Ext trait on any `&dyn Error`: `.one_line()`, `.chain()`, `.suggestion()`, `.formatted::<F>()`. |
-| `Format<E>` trait | Implement on a unit type to define a custom strategy. |
-| `chain(&dyn Error)` | Iterator over the error and its `source()` chain; use inside `Format` impls. |
-| `Formatted<E, F>` | Wrapper whose `Display` runs strategy `F` over `E`. |
-| `WithContext<C, E, F = Colon>` / `WithPath` | Tag an error with a context value (path, attempt, ID) without a wrapper variant. |
-| `ManyErrors<C, E>` | Aggregate of context-tagged failures; render as tree/list/bullets/joined. |
-| `Suggest` / `Suggestion` | Per-error "did you mean..." hints via `.suggestion()`. |
-| `Add<L, R>` + `separator::*` | Compose two strategies, e.g. `WithNewLine<OneLine, Suggestion>`. |
-| `DisplaySwapDebug<T>` | Swaps `Debug`/`Display`; powers `MainResult`. |
+| Report an error from `main` | `MainResult<E, F = OneLine, T = ()>` |
+| Attach a path, ID or attempt to an error | `.context(c)?` / `.with_context(\|\| c)?` (`ResultExt`) producing `WithContext<C, E>` / `WithPath<C, E>` |
+| Print a chain where you cannot return it | `FormatError`: `.one_line()`, `.chain()`, `.formatted::<F>()` |
+| Move an error across a thread, task or channel | `.detach()` producing `Detached` |
+| Report every failure of a batch | `ManyErrors<C, E>`, `ManyErrors::collect_results` |
+| Show a recovery hint | `Suggest` + `MainResultWithSuggestion<E>` |
+| House format | a tuple of strategies, or `impl Format<E>` |
 
-### Reference files
-
-| Need | File |
+| Detail | File |
 |---|---|
-| Choosing/combining formats, custom `Format`, `MainResult` internals | `references/formatting.md` |
-| Attaching a path / attempt / ID to an error | `references/with-context.md` |
-| Collecting and reporting many failures at once | `references/many-errors.md` |
-| "Did you mean..." recovery hints | `references/suggestions.md` |
+| Strategies, tuples, `Then`, custom `Format`, `Formatted` vs `FormattedRef`, connectors | `references/formatting.md` |
+| `WithContext` nesting, custom pair formats, inference failures | `references/with-context.md` |
+| `ManyErrors` building, groups, render shapes, custom shapes | `references/many-errors.md` |
+| `Suggest` hints | `references/suggestions.md` |
+| 0.3 code that no longer compiles | `references/upgrading-to-0.4.md` |
 
-## Patterns
+## `main` returns `MainResult`
 
-### `MainResult` for binary entrypoints
-
-Replace the `if let Err(e) = run() { eprintln!(...); exit(1) }` dance with a
-typed return. `MainResult` renders the chain via `Display`, so `Debug` never
-reaches stderr.
+`fn main() -> Result<(), E>` prints the error with `Debug`. `MainResult` prints
+it through a format strategy instead and exits with code 1. `?` converts any
+error `S` with `E: From<S>` in one hop, so `main` needs no `map_err` for errors
+the application error has a `#[from]` for.
 
 ```rust
-use errortools::{MainResult, with_context::WithPath};
+use errortools::{MainResult, ResultExt, WithPath};
 use std::{fs, io};
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("Failed to load config")]
-    Config(#[source] WithPath<&'static str, io::Error>),
+    Config(#[from] WithPath<&'static str, io::Error>),
 }
 
 fn main() -> MainResult<Error> {
-    let config_path = "missing.toml";
-    fs::read_to_string(config_path).map_err(|e| Error::Config(WithPath::new(config_path, e)))?;
+    let path = "missing.toml";
+    let _config = fs::read_to_string(path).context(path)?;
     Ok(())
 }
 ```
 
-Output:
-
 ```text
 Error: Failed to load config: missing.toml: No such file or directory (os error 2)
 ```
-with exit code 1.
 
-For the indented ladder: `fn main() -> MainResult<Error, Chain>`.
+- The second parameter picks the strategy for the whole program:
+  `MainResult<Error, Chain>` prints the indented ladder. No call site changes.
+- The third is the success type: `MainResult<Error, OneLine, ExitCode>`.
+- Async works with any runtime, because the wrappers are `Send + Sync`:
+  `#[tokio::main] async fn main() -> MainResult<Error>`.
+- Keep `exit` and `panic!` out of business logic. Return `Result` up to `main`
+  so destructors run and there is one place that reports.
 
-Switch the strategy globally by changing the type parameter on `MainResult`;
-no call sites change. Details and composition in `references/formatting.md`.
+## Attaching context: `.context(..)?`
 
-**Rules:**
-- **MUST** use `fn main() -> MainResult<Error>`. Never `Result<(), Error>`; that
-  prints `Debug`.
-- **MUST** confine `exit(1)` and `panic!()` to `main`. Business logic returns
-  `Result`.
-- **MUST** do graceful shutdown in `main` (join threads, close connections).
-  Rely on scope for drop; avoid calling `drop(v)` manually.
+A path, record ID or attempt number that callers will not `match` on belongs in
+a `WithContext`, not in a new variant. `.context(c)` pairs the error with `c`;
+`.with_context(|| c)` builds `c` only on failure (use it when `c` allocates).
+It renders `"<context>: <error>"`, and its `source()` skips the inner error, so
+chain renderers never print the error twice.
 
-### Ad-hoc logging mid-function
+The pair's format (`Colon` for `Display` contexts, `PathColon` for paths) is
+never written at the call site. It is inferred from where the value lands:
 
-When you cannot propagate (inside a `tokio::spawn`, an event handler, a retry
-loop), use `FormatError`. Never walk `source()` by hand.
-Use **ONLY** if there's no way to return a `Result` to the caller. 
+```rust
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    // One operation yields this pair type: #[from], so `?` is enough.
+    #[error("Failed to open input")]
+    Open(#[from] WithPath<PathBuf, io::Error>),
+    // A second operation with the same pair type: name the variant.
+    #[error("Failed to open output")]
+    OpenOutput(#[source] WithPath<PathBuf, io::Error>),
+}
+
+let i = File::open(input).with_context(|| input.to_owned())?;
+let o = File::open(output).with_context(|| output.to_owned()).map_err(Error::OpenOutput)?;
+```
+
+```text
+Failed to open input: in.txt: No such file or directory (os error 2)
+```
+
+Use `WithPath<C, E>` whenever the context is a `Path`/`PathBuf`: they have no
+`Display`, and `WithPath` renders them with `Path::display`. If `.context(..)?`
+fails with "type annotations needed" or "`From<WithContext<..>>` is not
+implemented", see `references/with-context.md`.
+
+## Logging where you cannot return
+
+Inside a retry loop or an event handler the error cannot propagate. Render it
+with `FormatError` (implemented for every `Error`, including `dyn Error`)
+instead of walking `source()` by hand, and only there: an error that can be
+returned should be.
 
 ```rust
 use errortools::FormatError;
 
-if let Err(e) = do_thing().await {
-    tracing::error!("do_thing failed: {}", e.one_line());
+if let Err(e) = do_thing() {
+    tracing::error!("do_thing failed: {}", e.one_line()); // a: b: c
+    eprintln!("{}", e.chain());                           // indented ladder
 }
 ```
 
-```rust
-eprintln!("{}", e.chain());             // indented ladder for terminals
-// eprintln!("{}", e.formatted::<F>()); // any custom strategy
-```
+These borrow the error (`FormattedRef`), so the error stays usable afterwards.
 
-### Custom format strategy
+## Crossing a thread, task or channel: `Detached`
 
-Implement `Format<E>` once per project, reuse everywhere. A chain-walking
-strategy declares `E: Error` itself and walks with `chain`; never call
-`source()` directly inside a `Format` impl.
+A typed error is often not `Send`, not `Clone`, or not `'static`. `detach()`
+snapshots the `Display` text of every level into a `Detached`, which is
+`Send + Sync + 'static + Clone` and is itself an `Error` with the same chain,
+so it renders identically and fits a `#[source]` field.
 
 ```rust
-use core::{error::Error, fmt};
-use errortools::{Format, chain};
-
-pub struct Arrow;
-impl<E: Error + ?Sized> Format<E> for Arrow {
-    fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, e) in chain(&error).enumerate() {
-            if i > 0 { f.write_str(" -> ")?; }
-            write!(f, "{e}")?;
-        }
-        Ok(())
-    }
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error("Worker failed")]
+    Worker(#[source] Detached),
+    #[error("Failed to join worker")]
+    Join(#[source] tokio::task::JoinError),
 }
 
-// fn main() -> MainResult<MyError, Arrow> { ... }
-// tracing::error!("{}", e.formatted::<Arrow>());
+let worker = tokio::spawn(async { "x".parse::<u32>().map_err(|e| JobError(e).detach()) });
+worker.await.map_err(Error::Join)?.map_err(Error::Worker)?;
 ```
 
-See `references/formatting.md` for composing strategies with `Add`/separators
-and for `Chain<Ascii>`/connectors.
-
-### Attaching incidental context
-
-When a path, retry count, or record ID needs to travel with an error but callers
-will not branch on it, use `WithContext` / `WithPath` instead of a wrapper variant.
-`WithContext`'s `source()` skips its own inner error, so the chain never doubles.
-
-```rust
-// BAD -- variant exists only to staple a path on
-#[error("IO at {path}")]
-IoAt { path: PathBuf, #[source] source: io::Error },
-
-// GOOD
-File::create(&path).map_err(|e| WithPath::new(path, e))?;
+```text
+Error: Worker failed: Failed to parse job: invalid digit found in string
 ```
 
-Keep context in a real variant only when callers need to match on it. See
-`references/with-context.md` for full usage.
+The snapshot keeps text only, so the receiver cannot `match` on variants. When
+the error type is already `Send + 'static`, send it as is and keep the types.
+`Detached::new(msg).with_source(..)` rebuilds a chain from messages (for
+example one received over the wire); `.message()` and `.cause()` read it back.
 
-### Collecting batch failures
+## Batches: `ManyErrors`
 
-Never silently skip failed items. Use `ManyErrors` to push `(context, error)`
-pairs and report them all at once.
+Do not stop at the first failure of independent items and do not skip failures.
+`collect_results` takes `(context, Result)` pairs and returns every `Ok` value
+or the aggregate of every failure. It fits `join_all` output or a drained
+`JoinSet`.
 
 ```rust
-let mut errs = ManyErrors::new();
-for item in &items {
-    if let Err(e) = process(item) { errs.push(item.id, e); }
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    // No #[source]: an aggregate has no single cause. Render it in the message.
+    #[error("Deploy failed:\n{}", .0.tree())]
+    Deploy(ManyErrors<&'static str, DeployError>),
 }
-errs.into_result(())?;
 
-// BEST
-items.into_iter()
-    .map(|item| process(item).map_err(|e| (item.id, e)))
-    .collect::<ManyErrors<_, _>>()
-    .into_result(())?;
+fn deploy_all(hosts: &[&'static str]) -> Result<Vec<u32>, Error> {
+    ManyErrors::collect_results(hosts.iter().map(|&h| (h, deploy(h)))).map_err(Error::Deploy)
+}
 ```
 
-See `references/many-errors.md` for nesting with `push_group` and render options.
-
-Two `ManyErrors` instances can be merged with `+` (the `Add` impl). This is
-useful when parallel work produces independent error sets that need to be
-reported together.
-
-```rust
-let errs = errs_a + errs_b;
-errs.into_result(())?;
+```text
+Deploy failed:
+2 errors:
+├─ i-0b2: Failed to upload artifact
+│  └─ disk full
+└─ i-0c3: Connection refused
 ```
 
-Merge of Results is also supported:
+When there are no `Ok` values to keep, collect the pairs and call
+`.into_result(())`. Shapes (`tree`, `list`, `bullets`, `one_line`), groups and
+merging are in `references/many-errors.md`.
 
-```rust
-let result_a: Result<(), Error> = ...;
-let result_b: Result<(), Error> = ...;
-let merged: ManyErrors<_, _> = result_a + result_b;
-```
+## Choosing a format
 
-## Choosing a format strategy
-
-| Context | Strategy |
+| Output | Strategy |
 |---|---|
-| CLI tools, default | `OneLine` (single tidy line, greppable) |
-| Interactive terminals, deep chains | `Chain` (or `Chain<Ascii>`) |
-| Structured logs (JSON, OpenTelemetry) | `OneLine`, one log line per error |
-| A batch of independent failures | `Tree` / `List` / `Bullets` / `Joined` (`ManyErrors`) |
-| Error + recovery hint | `WithNewLine<OneLine, Suggestion>` |
-| Project house style | custom `Format` impl, applied uniformly |
+| CLI default, structured logs | `OneLine`: `a: b: c`, one greppable line |
+| Interactive terminal, deep chains | `Chain` (`Chain<Ascii>` without box glyphs) |
+| Error plus hint | `MainResultWithSuggestion<E>` / `WithSuggestion<F, Sep>` |
+| Aggregate | `tree()` multi-line, `one_line()` single line |
+| House style | a tuple such as `(Chain, Then<NewLine, Suggestion>)`, or `impl Format<E>` |
 
-## References
+Define a house format once as a `type` alias and name it in `MainResult` and
+`formatted::<F>()`, so the style changes in one place.
 
-- API docs: <https://docs.rs/errortools>
-- Runnable examples: <https://github.com/maxwase/errortools/tree/master/examples>
-  (`one_line`, `chain`, `format_error`, `custom_format`, `transparent`,
-  `with_context`, `many_errors`)
+## Pitfalls
+
+- Printing a source inside its parent's message (`#[error("Read failed: {0}")]`
+  with `#[source]`) prints it twice under every strategy.
+- `{e}` on any error prints the top message only. Use `.one_line()` or
+  `.chain()` when the chain is wanted.
+- On a concrete `ManyErrors`, `.one_line()` and `.chain()` render every child.
+  Behind `dyn Error` or as a `#[source]` it shows a one-line summary without
+  the children's sources, so embed it in the variant message as above.
+- `ColonChar` / `ColonSpace` are separators; `with_context::Colon` is the pair
+  strategy. They are not interchangeable.
+- An unsupported strategy and value pair fails where the wrapper is displayed,
+  with a message such as "the strategy `X` cannot format `Y`" or "`Y` has no
+  suggestion to render". Fix the strategy or add the missing impl; do not
+  reach for `to_string()` workarounds.

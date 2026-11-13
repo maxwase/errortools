@@ -1,158 +1,121 @@
 ---
 name: migrating-from-unstructured
 description: >
-  Step-by-step guides for moving Rust error handling from anyhow or unstructured
-  patterns to typed thiserror enums and the errortools crate. Use whenever a task
-  involves replacing anyhow, removing Box<dyn Error>, converting .context() calls,
-  eliminating unwrap/expect from production code, or replacing manual eprintln +
-  exit(1). Trigger on: anyhow, bail!, ensure!, .context(, Box<dyn Error>,
-  String error, exit(1), unwrap(), expect() -- even mid-refactor. After migration,
-  see structured-error-handling for error type design and using-errortools for
-  MainResult / FormatError / ManyErrors.
+  Step-by-step guide for moving Rust error handling from anyhow or unstructured
+  patterns to typed thiserror enums and the errortools crate. Use whenever a
+  task involves replacing anyhow, removing Box<dyn Error> or String errors,
+  converting anyhow .context() calls, eliminating unwrap/expect from production
+  code, or replacing manual eprintln + exit(1). Trigger on: anyhow, bail!,
+  ensure!, anyhow::Context, Box<dyn Error>, String error, exit(1), unwrap(),
+  expect() -- even mid-refactor. For upgrading errortools 0.3 to 0.4 use
+  using-errortools instead.
 ---
 
 # migrating-from-unstructured
 
-Two migration paths are documented here. Both are mechanical and can be done
-incrementally; each step is independently shippable.
+Moves a codebase from `anyhow`, `Box<dyn Error>`, `String` errors, `unwrap`s
+and hand-rolled reporting to typed errors. The steps are mechanical and each
+is shippable on its own, so migrate module by module, leaves first.
 
-After migration:
-- Error type design rules → `structured-error-handling`
-- Rendering, `MainResult`, `WithContext`, `ManyErrors` → `using-errortools`
+Design rules for the new types are in `structured-error-handling`; the runtime
+API is in `using-errortools`. This skill only maps old patterns to new ones.
 
----
+## Target state
 
-## Migrating from `anyhow`
+1. One exit: `fn main() -> MainResult<Error>`, reached by `?`. Errors from
+   spawned tasks and handlers are joined or sent back to it; they are logged
+   in place only when there is no way to return them.
+2. One rendered chain identifies the code path that failed, because every
+   layer contributes its own message. Callers can `match` on any layer.
 
-`anyhow` trades type safety for convenience: callers cannot branch on error
-variants, and the chain is opaque.
-
-### Mental model:
-
-1. There's **MUST** be a single entry and single exit point for a program.
-The entry point is `fn main() -> MainResult<Error>`. The exit point is the `?` operator, which propagates errors to `main`. Every error **MUST** be typed and handled at the call site, either by propagating or by branching on the variant. Spawned tasks, event handlers **MUST** be collected and joined, polled in a `select!`, or otherwise returned to the main task. If you cannot propagate, use `FormatError` to log the error chain.
-2. From one error message it **MUST** be possible to reconstruct the exact place in the code where the error was generated. This message can be rather long, but the chain must be complete. This is the opposite of `anyhow`, which hides the source chain and makes it impossible to branch on variants.
-
-
-**Step 1: Replace the dependency.**
+## Step 1: dependencies
 
 ```toml
-# remove
-anyhow = "1"
-# add
-errortools = "0.3"
+errortools = "0.4"
 thiserror  = "2"
+# anyhow = "1"   remove once the last use is gone
 ```
 
-**Step 2: Replace `anyhow::Error` / `anyhow::Result` with typed returns.**
+## Step 2: a typed `Error` per module
+
+Replace `anyhow::Result<T>`, `Result<T, Box<dyn Error>>` and
+`Result<T, String>` with `Result<T, Error>`, where `Error` is the module's own
+enum. A formatted string becomes a variant with the cause as `#[source]`, not
+embedded in the text.
 
 ```rust
-// BAD
-use anyhow::{Context, Result};
-fn load(path: &Path) -> Result<Config> { ... }
-
-// GOOD
-fn load(path: &Path) -> Result<Config, load::Error> { ... }
-fn main() -> errortools::MainResult<main::Error> { ... }
-```
-
-**Step 3: Convert `.context("...")` / `.with_context(|| ...)` to typed variants.**
-
-Every `.context` call signals that a new variant or `WithContext` is needed.
-
-```rust
-// BAD
-fs::read_to_string(path).context("read config")?
-
-// GOOD -- when callers might match on the variant
-#[error("Read config")]
-ReadConfig(#[source] io::Error),
-...
-fs::read_to_string(path).map_err(Error::ReadConfig)?
-
-// GOOD -- when the path is incidental context callers won't branch on
-fs::read_to_string(path).map_err(|e| WithPath::new(path, e))?
-```
-
-For `WithContext` / `WithPath` usage and rendering, see `using-errortools` →
-"Attaching incidental context" and `references/with-context.md`.
-
-**Step 4: Replace `bail!` / `ensure!`.**
-
-```rust
-// BAD
-bail!("count must be positive, got {count}");
-ensure!(count > 0, "count must be positive, got {count}");
-
-// GOOD
-return Err(Error::InvalidCount { count });
-```
-
-**Step 5: Remove `anyhow` from `main`.**
-
-```rust
-// BAD
-fn main() -> anyhow::Result<()> { ... }
-
-// GOOD
-fn main() -> errortools::MainResult<Error> { ... }
-```
-
-**Step 6: Leave unstructured error handling in tests.** Tests may keep it as a
-convenience return type, panics included -- that is the one acceptable exception.
-Asserting still has rules, though: tests **MUST** match the exact error variant
-or message, not `assert!(res.is_err())`, and once a variant is matched the
-unhappy path **MUST** be tested too, not just the happy path. See
-`structured-error-handling` → "Tests".
-
----
-
-## Migrating from unstructured error handling
-
-"Unstructured" means: `String` errors, manual `eprintln!` + `exit(1)`,
-`Box<dyn Error>`, hand-rolled `source()` walks, or scattered `unwrap`/`expect`, tracing,
-or panic!() calls in production code.
-
-**Step 1: Introduce a typed error enum per module.**
-
-```rust
-// BAD
+// BEFORE
 fn parse(s: &str) -> Result<u32, String> {
     s.parse().map_err(|e| format!("bad number: {e}"))
 }
 
-// GOOD
+// AFTER
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Bad number")]
     Parse(#[source] std::num::ParseIntError),
-    ...
 }
 
 fn parse(s: &str) -> Result<u32, Error> {
-    ...
     s.parse().map_err(Error::Parse)
 }
 ```
 
-Never embed the source message in the variant text. `#[source]` chains it and
-`using-errortools` renders the chain.
+A parent module takes a child's error with
+`#[error(transparent)] Config(#[from] config::Error)`, so `?` keeps working
+across module boundaries without `map_err`.
 
-**Step 2: Replace `Box<dyn Error>` return types.**
+## Step 3: `anyhow`'s `.context(..)`
+
+An `anyhow` context string does two jobs. Split them: the fixed part, which
+names the operation, becomes the variant's message; the interpolated part,
+which identifies the item, becomes an `errortools` context value.
 
 ```rust
-// BAD
-fn run() -> Result<(), Box<dyn Error>> { ... }
+// BEFORE
+let text = fs::read_to_string(path)
+    .with_context(|| format!("Failed to read config {}", path.display()))?;
 
-// GOOD
-fn run() -> Result<(), Error> { ... }
-fn main() -> errortools::MainResult<Error> { ... }
+// AFTER
+#[error("Failed to read config")]
+Read(#[from] WithPath<PathBuf, io::Error>),
+
+let text = fs::read_to_string(path).with_context(|| path.to_owned())?;
 ```
 
-**Step 3: Replace manual `eprintln!` + `exit(1)` in `main`.**
+```text
+Error: Failed to read config: app.conf: No such file or directory (os error 2)
+```
+
+| `anyhow` call | Typed replacement |
+|---|---|
+| `.context("Read config")?` (no data) | `.map_err(Error::ReadConfig)?` |
+| `.with_context(\|\| format!("Read {path}"))?` | variant holding `WithPath<..>` / `WithContext<..>`, then `.context(path)?` if it is `#[from]`, else `.context(path).map_err(Error::Variant)?` |
+| `.context(..)` on an `Option` | `.ok_or(Error::MissingKey(key))?` |
+
+While a module still imports `anyhow::Context`, importing
+`errortools::ResultExt` as well makes `.context(..)` ambiguous. Convert a
+module's calls together and drop the `anyhow` import in the same change.
+
+## Step 4: `bail!`, `ensure!`, `anyhow!`
 
 ```rust
-// BAD
+// BEFORE
+ensure!(count > 0, "count must be positive, got {count}");
+
+// AFTER
+#[error("Count must be positive, got {count}")]
+InvalidCount { count: i32 },
+
+if count <= 0 {
+    return Err(Error::InvalidCount { count });
+}
+```
+
+## Step 5: `main`
+
+```rust
+// BEFORE
 fn main() {
     if let Err(e) = run() {
         eprintln!("Error: {e}");
@@ -160,57 +123,59 @@ fn main() {
     }
 }
 
-// BAD
-fn run() -> Result<(), Error> {
-    ...
-}
-
-// GOOD
+// AFTER: no run() wrapper, no eprintln!, no exit
 fn main() -> errortools::MainResult<Error> {
-    /// main logic without eprintln! or exit(1) or wrapper functions
+    let count = config::load(Path::new("app.conf"))?;
+    // ...
+    Ok(())
 }
 ```
 
-**Step 4: Replace hand-rolled source walks.**
+`fn main() -> anyhow::Result<()>` changes the same way. `MainResult` prints the
+whole chain on one line and exits with code 1; `?` converts through the
+application error's `#[from]` impls.
+
+## Step 6: hand-rolled source walks and `{:#}` / `{:?}` printing
 
 ```rust
-// BAD
+// BEFORE
 let mut cur: &dyn std::error::Error = &e;
-loop {
-    eprintln!("  caused by: {cur}");
-    match cur.source() { Some(s) => cur = s, None => break }
+while let Some(source) = cur.source() {
+    eprintln!("  caused by: {source}");
+    cur = source;
 }
+// or anyhow's: tracing::error!("{e:#}");
 
-// GOOD
+// AFTER
 use errortools::FormatError;
-tracing::error!("{}", e.one_line());  // single log line
-// or
-eprintln!("{}", e.chain());           // indented ladder for terminals
+tracing::error!("{}", e.one_line()); // single log line
+eprintln!("{}", e.chain());          // indented ladder
 ```
 
-**Step 5: Replace `unwrap` / `expect` in production code.**
+## Step 7: `unwrap` / `expect`
 
-Every `unwrap`/`expect` outside tests needs a `Result`-returning path or a
-documented invariant under `# Panics`.
+Each one outside tests becomes a returned variant, or keeps a documented
+invariant under `# Panics`.
 
 ```rust
-// BAD
-let val = map.get("key").unwrap();
+// BEFORE
+let val = map.get("count").unwrap();
 
-// GOOD
-let val = map.get("key").ok_or(Error::MissingKey)?;
-
-// BEST
-let key = "key";
+// AFTER: carry what was missing
+let key = "count";
 let val = map.get(key).ok_or(Error::MissingKey(key))?;
 ```
 
-**Step 6: Replace silent skips in loops.** A `let _ = process(item)` in a loop
-swallows failures. Collect them with `ManyErrors` instead -- the canonical
-push/`collect`/`into_result` pattern and the nesting/render options live in
-`using-errortools` → "Collecting batch failures" and `references/many-errors.md`.
+## Step 8: swallowed failures
 
-```rust
-// BAD -- failures vanish
-for item in items { let _ = process(item); }
-```
+- `let _ = process(item);` in a loop, or `filter_map(Result::ok)`: collect
+  with `ManyErrors::collect_results` (`using-errortools`, "Batches").
+- `e.to_string()` sent through a channel, or `anyhow::Error` returned from a
+  spawned task because the real error is not `Send`: send `e.detach()`
+  (`using-errortools`, "Crossing a thread, task or channel").
+
+## Tests
+
+Tests may keep `unwrap`, panics and an opaque return type; that is the one
+place they are fine. Assertions still follow `structured-error-handling`
+rule 16: match the variant, and cover the failure paths.

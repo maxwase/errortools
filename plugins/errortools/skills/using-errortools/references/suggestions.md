@@ -1,15 +1,15 @@
-# Suggestions: "Did you mean..." hints
+# Recovery hints: `Suggest`
 
-Read this when an error should carry a recovery hint for the user ("copy
-`config.example.toml` to `config.toml`", "pass `--help`", "check the path
-exists") separate from the error message itself.
+Read this when an error should tell the user what to do next ("copy
+`config.example.toml` to `config.toml`", "pass `--help`"), separately from the
+message that says what went wrong.
 
-Implement the `Suggest` trait on your error type to give per-variant hints, then
-render them with `error.suggestion()` (or the `Suggestion` `Format` strategy).
+Implement `Suggest` on the error type. The default body writes nothing, so only
+variants with a hint need an arm.
 
 ```rust
 use core::fmt;
-use errortools::{FormatError, Suggest};
+use errortools::{MainResultWithSuggestion, Suggest};
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
@@ -22,68 +22,50 @@ enum Error {
 impl Suggest for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoConfig => f.write_str("Did you copy config.example.toml to config.toml?"),
+            Self::NoConfig => f.write_str("Copy config.example.toml to config.toml"),
             Self::Network => Ok(()), // no hint for this variant
         }
     }
 }
 
-eprintln!("{}\n{}", Error::NoConfig.one_line(), Error::NoConfig.suggestion());
-// Config file missing
-// Did you copy config.example.toml to config.toml?
-```
-
-`Suggest::fmt` defaults to writing nothing, so a type only needs arms for the
-variants that actually have a hint.
-
-## Top-level only, by design
-
-`error.suggestion()` prints **only the top-level error's** hint; the source
-chain is not walked. This is intentional: an inner error's hint is often
-irrelevant once it has been wrapped, and printing it would just add noise. The
-convention is that each error that should suggest something implements `Suggest`,
-and a top-level error's hint can deliberately concatenate an inner hint when it's
-relevant, with nesting that matches the error chain.
-
-`Suggest` is dispatched on the concrete outer type, so it is **not** delegated
-through `#[error(transparent)]` either: `transparent` collapses `Display` and
-`source`, but the outer type's `Suggest` impl always wins.
-
-## Pairing the error with its hint
-
-A bare `error.suggestion()` is just the hint. To show the error *and* its hint,
-compose the two strategies with `Add` (see `formatting.md`). The
-`WithNewLine<OneLine, Suggestion>` alias puts the hint on its own line:
-
-```rust
-use errortools::{Formatted, OneLine, Suggestion, separator::WithNewLine};
-
-type Brief = WithNewLine<OneLine, Suggestion>;
-eprintln!("{}", Formatted::<_, Brief>::new(err));
-// <one-line chain>
-// <top-level suggestion>
-```
-
-`Add` writes both sides unconditionally, so a variant with no hint still emits
-the separator (a trailing newline), predictable for line-oriented output.
-
-## In `main`: `MainResultWithSuggestion`
-
-To print the error and its hint straight out of `main`, return
-`MainResultWithSuggestion<E>` instead of `MainResult<E>`. It is
-`MainResult<E, WithSuggestion<F, NewLine>>`: the error via `F` (default
-`OneLine`), a newline, then the top-level suggestion:
-
-```rust
-use errortools::{MainResultWithSuggestion, Suggest};
-
 fn main() -> MainResultWithSuggestion<Error> {
-    do_work()?; // any Err with Suggest renders as "<chain>\n<hint>"
+    Err(Error::NoConfig)?;
     Ok(())
 }
 ```
 
-Customize the layout with the `WithSuggestion<F, Sep>` type alias (e.g. a space
-separator, or a different error strategy `F`), or drop down to `MainResult<E, _>`
-with your own `Add`-composed strategy. The `T` success generic still applies, so
-`MainResultWithSuggestion<E, OneLine, ExitCode>` works too.
+```text
+Error: Config file missing
+Copy config.example.toml to config.toml
+```
+
+`Error::Network` prints `Error: Network down` with no trailing blank line.
+
+## Rendering
+
+| Call | Output |
+|---|---|
+| `fn main() -> MainResultWithSuggestion<E, F = OneLine, T = ()>` | error via `F`, newline, hint |
+| `e.suggestion()` | the hint alone; empty string when there is none |
+| `e.formatted::<WithSuggestion<F, Sep>>()` | error via `F`, `Sep`, hint; `Sep` is skipped when there is no hint |
+
+`WithSuggestion<F = OneLine, Sep = NewLine>` is the tuple
+`(F, Then<Sep, Suggestion>)`; use `MainResult<E, WithSuggestion<Chain>>` or
+your own tuple for other layouts (see `formatting.md`).
+
+## Only the top-level error's hint is used
+
+`Suggestion` calls `Suggest` on the value it is given and does not walk
+`source()`. An inner error's hint is often wrong once the error is wrapped, so
+the outer type decides: its `Suggest` impl can call the inner one for the
+variants where the inner hint still applies.
+
+```rust
+Self::Config(inner) => Suggest::fmt(inner, f),
+```
+
+This also holds for `#[error(transparent)]` variants: `transparent` forwards
+`Display` and `source()`, not `Suggest`. Because dispatch is on the concrete
+type, the strategies need `E: Suggest`; a type without an impl fails to compile
+with "`E` has no suggestion to render", and an empty `impl Suggest for E {}` is
+enough to opt in.
