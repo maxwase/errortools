@@ -412,6 +412,13 @@ Run with: `cargo run --example <name>`.
 
 Without either, the per-error core still works: `MainResult`, `OneLine`, `Chain`, `WithContext`, `ResultExt`, `Suggestion`, tuple strategies.
 
+## gRPC
+
+[`errortools-tonic`](https://docs.rs/errortools-tonic) maps these errors onto a [`tonic::Status`](https://docs.rs/tonic/latest/tonic/struct.Status.html) and back.
+On the server an error picks its status code and converts with `into_status()`; a `ManyErrors` becomes `google.rpc.BadRequest` field violations and a `Suggest` hint becomes a `google.rpc.Help` detail.
+On the client the status turns back into a `Detached` chain or a `ManyErrors` that render through the same strategies.
+Source text stays on the server unless the handler opts in to sending the whole chain.
+
 ## Skills
 
 This repo has a claude marketplace that can be added with `maxwase/errortools`.

@@ -42,6 +42,10 @@ pub trait ErrorStatusExt: sealed::Sealed {
     /// not decode, or a proxy dropped them) the result is a single level
     /// holding [`Status::message`]. This never fails.
     ///
+    /// A detail with more than 1024 entries is treated as absent. A chain is
+    /// dropped recursively, so an unbounded one from an untrusted server
+    /// could overflow the stack; a real chain is nowhere near that long.
+    ///
     /// The entries are trusted to be an error chain. A server that does not
     /// use this crate may put a real stack trace there, and that is what the
     /// result will then hold.
@@ -62,7 +66,7 @@ pub trait ErrorStatusExt: sealed::Sealed {
 impl ErrorStatusExt for Status {
     fn to_detached(&self) -> Detached {
         self.get_details_debug_info()
-            .and_then(|info| tree::detached_from_messages(info.stack_entries.into_iter()))
+            .and_then(|info| tree::detached_from_messages(info.stack_entries))
             .unwrap_or_else(|| Detached::new(self.message()))
     }
 

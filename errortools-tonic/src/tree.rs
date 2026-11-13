@@ -8,7 +8,7 @@
 //! nodes  := count node*            count nodes follow
 //! node   := 0x00 string chain      a leaf: context, then its error chain
 //!         | 0x01 string nodes      a group: label, then its children
-//! chain  := count string*          at least one message, outermost first
+//! chain  := count string*          1 to 1024 messages, outermost first
 //! string := count byte*            UTF-8
 //! count  := unsigned LEB128
 //! ```
@@ -26,9 +26,18 @@ const GROUP: u8 = 1;
 /// Deepest group nesting that is encoded or decoded. Decoding recurses per
 /// level, so the bound keeps hostile input from exhausting the stack.
 const MAX_DEPTH: usize = 32;
+/// Longest chain that is encoded or decoded, in messages.
+///
+/// A [`Detached`] chain is a linked list that is dropped, compared and
+/// cloned recursively, one stack frame per level. A server could otherwise
+/// send a chain of a few tens of thousands of empty messages (a few tens of
+/// kilobytes) and make the client overflow its stack when the value is
+/// dropped. Real chains are a handful of levels long.
+pub(crate) const MAX_CHAIN: usize = 1024;
 
 /// Encodes `errors`, or returns `None` when it nests deeper than
-/// [`MAX_DEPTH`]. With [`Detail::TopLevel`] only each leaf's own message is
+/// [`MAX_DEPTH`] or a leaf chain that is to be written is longer than
+/// [`MAX_CHAIN`]. With [`Detail::TopLevel`] only each leaf's own message is
 /// written.
 pub(crate) fn encode(errors: &DetachedErrors, detail: Detail) -> Option<Vec<u8>> {
     let mut out = vec![VERSION];
@@ -54,7 +63,11 @@ fn encode_nodes(
                         write_str(leaf.error.message(), out);
                     }
                     Detail::Chain => {
-                        write_count(sources(&leaf.error).count(), out);
+                        let count = sources(&leaf.error).count();
+                        if count > MAX_CHAIN {
+                            return None;
+                        }
+                        write_count(count, out);
                         let levels =
                             std::iter::successors(Some(&leaf.error), |level| level.cause());
                         for level in levels {
@@ -93,7 +106,8 @@ fn write_str(value: &str, out: &mut Vec<u8>) {
 
 /// Decodes a trailer. Returns `None` for anything that is not exactly one
 /// well-formed tree: unknown version, truncated or trailing bytes, invalid
-/// UTF-8, a leaf without a message, or nesting deeper than [`MAX_DEPTH`].
+/// UTF-8, a leaf without a message or with more than [`MAX_CHAIN`] of them,
+/// or nesting deeper than [`MAX_DEPTH`].
 pub(crate) fn decode(bytes: &[u8]) -> Option<DetachedErrors> {
     let mut reader = Reader(bytes);
     if reader.byte()? != VERSION {
@@ -104,11 +118,15 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<DetachedErrors> {
 }
 
 /// Rebuilds a chain from its messages, outermost first. `None` when there
-/// are no messages.
-pub(crate) fn detached_from_messages(
-    messages: impl DoubleEndedIterator<Item = String>,
-) -> Option<Detached> {
-    messages.rev().fold(None, |source, message| {
+/// are no messages or more than [`MAX_CHAIN`].
+///
+/// Every chain that is built from received bytes goes through here, so this
+/// is where the length limit is enforced.
+pub(crate) fn detached_from_messages(messages: Vec<String>) -> Option<Detached> {
+    if messages.len() > MAX_CHAIN {
+        return None;
+    }
+    messages.into_iter().rev().fold(None, |source, message| {
         let level = Detached::new(message);
         Some(match source {
             Some(source) => level.with_source(source),
@@ -159,11 +177,17 @@ impl Reader<'_> {
             let context = self.string()?;
             match tag {
                 LEAF => {
+                    let count = self.count()?;
+                    // Checked before reading, so an overlong chain is not
+                    // even collected.
+                    if count > MAX_CHAIN {
+                        return None;
+                    }
                     let mut messages = Vec::new();
-                    for _ in 0..self.count()? {
+                    for _ in 0..count {
                         messages.push(self.string()?);
                     }
-                    errors.push(context, detached_from_messages(messages.into_iter())?);
+                    errors.push(context, detached_from_messages(messages)?);
                 }
                 GROUP => errors.push_group(context, self.nodes(depth_left.checked_sub(1)?)?),
                 _ => return None,

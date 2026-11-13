@@ -611,3 +611,102 @@ fn test_status_from_unsized_error() {
     let status = Mapping::detailed().status(&*error);
     assert_eq!(status.message(), "dynamic: connection refused");
 }
+
+// --- chain length limit ---
+
+/// A chain of `levels` messages, built without recursion.
+fn long_chain(levels: usize) -> Detached {
+    (1..levels).fold(Detached::new("level"), |source, _| {
+        Detached::new("level").with_source(source)
+    })
+}
+
+/// One leaf with an empty context and `levels` empty messages, as it would
+/// arrive from a server.
+fn long_chain_trailer(levels: usize) -> Vec<u8> {
+    let mut errors = DetachedErrors::new();
+    errors.push(String::new(), Detached::new(""));
+    let mut bytes = tree::encode(&errors, Detail::Chain).unwrap();
+    // Version, one node, leaf tag, empty context; then the chain.
+    assert_eq!(bytes, [1, 1, 0, 0, 1, 0]);
+    bytes.truncate(4);
+    let mut count = levels;
+    while count >= 0x80 {
+        bytes.push((count & 0x7f) as u8 | 0x80);
+        count >>= 7;
+    }
+    bytes.push(count as u8);
+    bytes.extend(std::iter::repeat_n(0, levels));
+    bytes
+}
+
+#[test]
+fn test_decode_rejects_overlong_chain() {
+    let longest = tree::decode(&long_chain_trailer(tree::MAX_CHAIN)).unwrap();
+    assert_eq!(longest.len(), 1);
+
+    assert_eq!(tree::decode(&long_chain_trailer(tree::MAX_CHAIN + 1)), None);
+    // Without the limit this input builds a chain whose drop overflows the
+    // stack and aborts the process.
+    assert_eq!(tree::decode(&long_chain_trailer(1_000_000)), None);
+}
+
+#[test]
+fn test_overlong_chain_in_trailer_falls_back_to_violations() {
+    let mut status = flat().into_detailed_status();
+    status.metadata_mut().insert_bin(
+        TREE_TRAILER,
+        tonic::metadata::BinaryMetadataValue::from_bytes(&long_chain_trailer(1_000_000)),
+    );
+    assert_eq!(status.to_many_errors().unwrap().len(), 2);
+}
+
+#[test]
+fn test_to_detached_falls_back_for_overlong_debug_info() {
+    let with_entries = |count: usize| {
+        Status::with_error_details(
+            tonic::Code::Internal,
+            "plain message",
+            tonic_types::ErrorDetails::with_debug_info(vec![String::from("level"); count], ""),
+        )
+    };
+
+    let longest = with_entries(tree::MAX_CHAIN).to_detached();
+    assert_eq!(sources(&longest).count(), tree::MAX_CHAIN);
+    assert_eq!(longest, long_chain(tree::MAX_CHAIN));
+
+    assert_eq!(
+        with_entries(tree::MAX_CHAIN + 1).to_detached(),
+        Detached::new("plain message")
+    );
+    // Without the limit dropping this result overflows the stack.
+    assert_eq!(
+        with_entries(1_000_000).to_detached(),
+        Detached::new("plain message")
+    );
+}
+
+#[test]
+fn test_trailer_dropped_for_overlong_leaf_chain() {
+    let aggregate = |levels: usize| {
+        let mut errors = ManyErrors::<&str, Detached>::new();
+        errors.push("field", long_chain(levels));
+        errors
+    };
+    // A cap far above the size, so only the chain length decides.
+    let mapping = tree_cap(1 << 20);
+
+    let status = aggregate(tree::MAX_CHAIN).into_status_with(&mapping);
+    assert_eq!(
+        status.to_many_errors(),
+        Some(detach_leaves(&aggregate(tree::MAX_CHAIN)))
+    );
+
+    let status = aggregate(tree::MAX_CHAIN + 1).into_status_with(&mapping);
+    assert!(status.metadata().get_bin(TREE_TRAILER).is_none());
+    assert_eq!(violations(&status).len(), 1);
+    // Only the top level decides how much is sent, so the default mapping
+    // still sends the tree.
+    let status = aggregate(tree::MAX_CHAIN + 1).into_status_with(&Mapping::new().with_tree());
+    assert!(status.metadata().get_bin(TREE_TRAILER).is_some());
+}

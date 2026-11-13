@@ -3,6 +3,12 @@
 Maps [`errortools`](https://docs.rs/errortools) errors onto gRPC
 [`tonic::Status`](https://docs.rs/tonic/latest/tonic/struct.Status.html) and back.
 
+By default only the status code, the error's top-level message, its hint and
+the top-level message of each aggregate leaf are sent. The source chain is
+not sent: no source text and no `DebugInfo` leave the server unless the
+handler opts in with `into_detailed_status()` or `Detail::Chain`. See
+[What the client gets to see](#what-the-client-gets-to-see).
+
 The mapping uses the standard gRPC carriers, so a client in any language can
 read the result, and adds one private trailer only for what they cannot express.
 
@@ -207,8 +213,11 @@ tree   := 0x01 nodes
 nodes  := count node*
 node   := 0x00 string chain      leaf: context, then its messages
         | 0x01 string nodes      group: label, then its children
-chain  := count string*          at least one message, outermost first
+chain  := count string*          1 to 1024 messages, outermost first
 string := count byte*
 ```
 
-Groups nest at most 32 levels deep; a deeper tree is not sent.
+Groups nest at most 32 levels deep and a leaf chain holds at most 1024
+messages; a tree beyond either limit is not sent, and one that arrives is
+ignored. `to_detached` applies the same 1024 limit to the `DebugInfo` entries
+and falls back to the status message beyond it.
