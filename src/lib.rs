@@ -15,13 +15,15 @@ use derive_where::derive_where;
 
 mod chain;
 mod connectors;
+#[cfg(feature = "alloc")]
+mod detached;
 pub mod indent;
 mod main_result;
 #[cfg(feature = "alloc")]
 pub mod many_errors;
 mod oneline;
 #[cfg(feature = "std")]
-pub mod path_display;
+mod path_display;
 pub mod separator;
 mod suggestion;
 mod tuple;
@@ -29,18 +31,25 @@ pub mod with_context;
 
 pub use chain::Chain;
 pub use connectors::{Ascii, Connectors, TreeConnectors, Unicode};
+#[cfg(feature = "alloc")]
+pub use detached::Detached;
+pub use indent::Repeat;
 pub use main_result::{
     DisplaySwapDebug, MainError, MainResult, MainResultWithSuggestion, WithSuggestion,
 };
 #[cfg(feature = "alloc")]
 pub use many_errors::{
     Bullets, IntoIter, Iter, IterMut, Joined, List, ManyErrors, Node, Subgroup, Tree,
+    strategy::{ErrorCount, LeafChain},
 };
 pub use oneline::OneLine;
 #[cfg(feature = "std")]
 pub use path_display::DisplayPath;
+pub use separator::{ColonChar, ColonSpace, Empty, Lit, NewLine, Space, Then};
 pub use suggestion::{Suggest, Suggestion};
-pub use with_context::{ResultExt, WithContext};
+pub use with_context::{Colon, ContextField, ErrorField, ResultExt, WithContext};
+#[cfg(feature = "std")]
+pub use with_context::{ContextPath, PathColon, WithPath};
 
 /// A static strategy for formatting a value to a [`fmt::Formatter`].
 ///
@@ -50,13 +59,13 @@ pub use with_context::{ResultExt, WithContext};
 /// For example, an implementation of
 /// [`Format<WithContext<C, E, WithContextFormat>>`] can format the context
 /// and error fields of [`WithContext`] with field extractors like
-/// [`ContextField`](crate::with_context::ContextField) and [`ErrorField`](crate::with_context::ErrorField)
+/// [`ContextField`] and [`ErrorField`]
 /// without walking the source chain at all.
 ///
 /// `E` is the value being formatted; each strategy declares its own bounds:
 /// [`OneLine`] and [`Chain`] require `E: Error`, [`Suggestion`] additionally
 /// requires [`Suggest`], and field extractors like
-/// [`ContextField`](crate::with_context::ContextField) require `E` to be a
+/// [`ContextField`] require `E` to be a
 /// specific shape. The trait itself imposes nothing beyond `?Sized` so
 /// strategies can format non-error pairs (e.g. [`WithContext`]).
 ///
@@ -67,7 +76,7 @@ pub use with_context::{ResultExt, WithContext};
 /// # `Debug` convention across this crate
 /// Strategy tags carry their configuration only at the type level (in a phantom
 /// `PhantomData<fn() -> _>`), so their `Debug` is hand-written:
-/// - **Pure-strategy types** ([`Chain`], [`Then`](separator::Then), `Tree`, and [`Formatted`])
+/// - **Pure-strategy types** ([`Chain`], [`Then`], `Tree`, and [`Formatted`])
 ///   materialize the phantom marker via [`Default`] and print its configuration
 ///   — these impls bound the marker `…: Debug + Default`, while their
 ///   auto-traits ([`Clone`]/[`Copy`]/[`PartialEq`]/[`Eq`]/[`Hash`]) stay free of
@@ -137,6 +146,19 @@ pub trait FormatError {
     fn formatted<F>(&self) -> FormattedRef<'_, Self, F> {
         FormattedRef::new(self)
     }
+
+    /// Snapshots the error and its source chain into an owned [`Detached`].
+    ///
+    /// The snapshot keeps only the `Display` text of each level, so it is
+    /// `Send + Sync + 'static + Clone` and renders through any strategy
+    /// exactly like the original.
+    #[cfg(feature = "alloc")]
+    fn detach(&self) -> Detached
+    where
+        Self: Error,
+    {
+        Detached::snapshot(self)
+    }
 }
 
 impl<E: Error + ?Sized> FormatError for E {}
@@ -172,7 +194,7 @@ impl<E, F: Format<E>> fmt::Display for Formatted<E, F> {
 }
 
 /// Surfaces both the wrapped error and the active strategy (materialized via
-/// [`Default`], like [`Chain`]/[`Then`](separator::Then)/`Tree`) rather than printing
+/// [`Default`], like [`Chain`]/[`Then`]/`Tree`) rather than printing
 /// `Formatted(.., PhantomData)`. The `F: Debug + Default` bound applies to this
 /// `Debug` impl only — the auto-trait impls above stay free of any `F` bound.
 impl<E: fmt::Debug, F: fmt::Debug + Default> fmt::Debug for Formatted<E, F> {

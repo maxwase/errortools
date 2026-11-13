@@ -4,8 +4,7 @@
 
 use std::io;
 
-use errortools::many_errors::Ascii;
-use errortools::{FormattedRef, ManyErrors, many_errors::Tree};
+use errortools::{Ascii, FormattedRef, ManyErrors, Tree};
 
 #[derive(Debug, thiserror::Error)]
 enum DeployError {

@@ -19,7 +19,6 @@ mod iter;
 mod node;
 pub mod strategy;
 
-pub use crate::connectors::{Ascii, Connectors, TreeConnectors, Unicode};
 pub use iter::{IntoIter, Iter, IterMut};
 pub use node::{Node, Subgroup};
 pub use strategy::{Bullets, Joined, List, Tree};
@@ -148,7 +147,7 @@ pub use strategy::{Bullets, Joined, List, Tree};
 /// Rendering itself bounds neither `C` nor `GC`: leaves go through `F`, group
 /// labels through `GF`, and those strategies decide what each context must
 /// implement (the default [`Colon`]/[`AsDisplay`] need
-/// [`Display`](core::fmt::Display); a path context works with
+/// [`Display`]; a path context works with
 /// [`PathColon`](crate::with_context::PathColon) and no `Display` at all).
 /// Only putting a `ManyErrors` in an [`Error`] *position* (e.g. as a
 /// `#[source]`) additionally requires `C: Debug` and `GC: Debug`, because
