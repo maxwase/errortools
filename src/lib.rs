@@ -13,7 +13,6 @@ use core::{error::Error, fmt, iter, marker::PhantomData};
 
 use derive_where::derive_where;
 
-mod add;
 mod chain;
 mod connectors;
 pub mod indent;
@@ -23,10 +22,11 @@ pub mod many_errors;
 mod oneline;
 #[cfg(feature = "std")]
 pub mod path_display;
+pub mod separator;
 mod suggestion;
+mod tuple;
 pub mod with_context;
 
-pub use add::{Add, separator};
 pub use chain::Chain;
 pub use connectors::{Ascii, Connectors, TreeConnectors, Unicode};
 pub use main_result::{DisplaySwapDebug, MainResult, MainResultWithSuggestion, WithSuggestion};
@@ -65,7 +65,7 @@ pub use with_context::WithContext;
 /// # `Debug` convention across this crate
 /// Strategy tags carry their configuration only at the type level (in a phantom
 /// `PhantomData<fn() -> _>`), so their `Debug` is hand-written:
-/// - **Pure-strategy types** ([`Chain`], [`Add`], `Tree`, and [`Formatted`])
+/// - **Pure-strategy types** ([`Chain`], [`Then`](separator::Then), `Tree`, and [`Formatted`])
 ///   materialize the phantom marker via [`Default`] and print its configuration
 ///   — these impls bound the marker `…: Debug + Default`, while their
 ///   auto-traits ([`Clone`]/[`Copy`]/[`PartialEq`]/[`Eq`]/[`Hash`]) stay free of
@@ -170,7 +170,7 @@ impl<E, F: Format<E>> fmt::Display for Formatted<E, F> {
 }
 
 /// Surfaces both the wrapped error and the active strategy (materialized via
-/// [`Default`], like [`Chain`]/[`Add`]/`Tree`) rather than printing
+/// [`Default`], like [`Chain`]/[`Then`](separator::Then)/`Tree`) rather than printing
 /// `Formatted(.., PhantomData)`. The `F: Debug + Default` bound applies to this
 /// `Debug` impl only — the auto-trait impls above stay free of any `F` bound.
 impl<E: fmt::Debug, F: fmt::Debug + Default> fmt::Debug for Formatted<E, F> {

@@ -61,7 +61,7 @@ mod tests {
     use std::io;
 
     use crate::{
-        Add, FormatError,
+        FormatError,
         separator::NewLine,
         tests::{Error, Inner, Mid, NoHint},
     };
@@ -123,9 +123,9 @@ mod tests {
             e.suggestion().to_string(),
             "Try passing --help to see available options.",
         );
-        // They can be composed via Add.
+        // They can be composed via a tuple.
         assert_eq!(
-            e.formatted::<Add<crate::OneLine, Add<NewLine, crate::Suggestion>>>()
+            e.formatted::<(crate::OneLine, NewLine, crate::Suggestion)>()
                 .to_string(),
             "One\nTry passing --help to see available options.",
         );

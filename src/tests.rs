@@ -149,7 +149,7 @@ fn _assert_derive_traits() {
     fn assert_copy<T: Clone + Copy>() {}
     assert_copy::<crate::FormattedRef<'static, dyn core::error::Error, NoTraits>>();
     assert_all::<Chain<NoTraits>>();
-    assert_all::<Add<NoTraits, NoTraits>>();
+    assert_all::<separator::Then<NoTraits, NoTraits>>();
     #[cfg(feature = "alloc")]
     assert_all::<Tree<NoTraits, true>>();
 

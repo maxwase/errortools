@@ -28,8 +28,9 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 /// can format the pair. Strategies are usually built by composing the field
 /// extractors [`ContextField`] / [`ErrorField`] (or `ContextPath` when
 /// `C: AsRef<Path>`, requires `std`) with separator strategies via
-/// [`Add`](crate::Add) / [`WithSep`](crate::separator::WithSep), e.g. the default
-/// [`Colon`] is [`WithColonSpace<ContextField, ErrorField>`](crate::separator::WithColonSpace).
+/// a tuple, e.g. the default [`Colon`] is
+/// `(ContextField, ColonSpace, ErrorField)` with
+/// [`ColonSpace`](crate::separator::ColonSpace) from [`separator`](crate::separator).
 ///
 /// [`Error::source`] returns the inner error's source (skipping `error` itself,
 /// since the strategy already prints it), so chain-walking strategies don't
@@ -52,10 +53,10 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 ///
 /// ## Custom strategy via composition of field extractors and separators
 /// ```
-/// use errortools::{WithContext, separator::WithSpace, with_context::{ContextField, ErrorField}};
+/// use errortools::{WithContext, separator::Space, with_context::{ContextField, ErrorField}};
 ///
 /// // Same as `Colon` but uses a single space instead of ": ".
-/// type SpacePair = WithSpace<ContextField, ErrorField>;
+/// type SpacePair = (ContextField, Space, ErrorField);
 /// let w = WithContext::<_, _, SpacePair>::new("step", "boom");
 /// assert_eq!(w.to_string(), "step boom");
 /// ```

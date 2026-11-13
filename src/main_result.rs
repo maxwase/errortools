@@ -1,7 +1,7 @@
 use core::error::Error;
 use core::fmt;
 
-use crate::separator::{NewLine, WithSep};
+use crate::separator::{NewLine, Then};
 
 use super::{Format, Formatted, OneLine};
 
@@ -17,7 +17,7 @@ pub type MainResult<E, F = OneLine, T = ()> =
 ///
 /// See [`MainResult`] for details on the type parameters.
 /// The suggestion is rendered after the error, separated by a newline. To customize the separator, use `MainResult` with a custom `Format` that combines the error and suggestion as desired.
-/// If [`Suggestion::fmt`](crate::Suggestion::fmt) produces an empty string, the separator is still printed.
+/// If the error has no suggestion (the hint renders empty), the newline is not printed either.
 pub type MainResultWithSuggestion<E, F = OneLine, T = ()> =
     core::result::Result<T, DisplaySwapDebug<Formatted<E, WithSuggestion<F, NewLine>>>>;
 
@@ -25,9 +25,10 @@ pub type MainResultWithSuggestion<E, F = OneLine, T = ()> =
 /// Used by `MainResultWithSuggestion` to render the error and suggestion together.
 /// `F` defaults to [`OneLine`] and `Sep` defaults to a newline, but you can customize both to achieve different layouts.
 ///
-/// Equivalent to [`WithSep<F, Sep, Suggestion>`].
-/// If [`Suggestion::fmt`](crate::Suggestion::fmt) produces an empty string, the separator is still printed.
-pub type WithSuggestion<F = OneLine, Sep = NewLine> = WithSep<F, Sep, crate::Suggestion>;
+/// Equivalent to `(F, Then<Sep, Suggestion>)`: [`Then`] writes the separator
+/// only when the suggestion renders non-empty, so an error without a hint
+/// leaves no trailing separator.
+pub type WithSuggestion<F = OneLine, Sep = NewLine> = (F, Then<Sep, crate::Suggestion>);
 
 /// Wrapper that swaps an inner type's [`fmt::Debug`] and [`fmt::Display`] impls.
 ///
@@ -148,9 +149,20 @@ mod tests {
     }
 
     #[test]
-    fn test_with_suggestion_empty_hint_keeps_separator() {
+    fn test_with_suggestion_empty_hint_skips_separator() {
         let formatted = Formatted::<_, WithSuggestion>::new(Error::Two(Inner::A));
-        assert_eq!(formatted.to_string(), "Two: InnerA\n");
+        assert_eq!(formatted.to_string(), "Two: InnerA");
+    }
+
+    #[test]
+    fn test_main_result_with_suggestion_hintless_has_no_trailing_newline() {
+        fn run() -> MainResultWithSuggestion<Error> {
+            Err(Error::Two(Inner::A))?;
+            Ok(())
+        }
+
+        // Debug is what `main` prints.
+        assert_eq!(format!("{:?}", run().unwrap_err()), "Two: InnerA");
     }
 
     #[test]
@@ -181,7 +193,7 @@ mod tests {
         // Display of DisplaySwapDebug = Debug of inner Formatted = error + strategy.
         assert_eq!(
             wrapped.to_string(),
-            "Formatted { error: One, format: Add(Add(OneLine, NewLine), Suggestion) }"
+            r#"Formatted { error: One, format: (OneLine, Then(Lit("\n"), Suggestion)) }"#
         );
     }
 
