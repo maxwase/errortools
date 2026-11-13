@@ -33,13 +33,12 @@ pub use chain::Chain;
 pub use connectors::{Ascii, Connectors, TreeConnectors, Unicode};
 #[cfg(feature = "alloc")]
 pub use detached::Detached;
-pub use indent::Repeat;
 pub use main_result::{
     DisplaySwapDebug, MainError, MainResult, MainResultWithSuggestion, WithSuggestion,
 };
 #[cfg(feature = "alloc")]
 pub use many_errors::{
-    Bullets, IntoIter, Iter, IterMut, Joined, List, ManyErrors, Node, Subgroup, Tree,
+    Bullets, Joined, List, ManyErrors, Node, Subgroup, Tree,
     strategy::{ErrorCount, LeafChain},
 };
 pub use oneline::OneLine;
@@ -47,9 +46,9 @@ pub use oneline::OneLine;
 pub use path_display::DisplayPath;
 pub use separator::{ColonChar, ColonSpace, Empty, Lit, NewLine, Space, Then};
 pub use suggestion::{Suggest, Suggestion};
-pub use with_context::{Colon, ContextField, ErrorField, ResultExt, WithContext};
+pub use with_context::{ContextField, ErrorField, ResultExt, WithContext};
 #[cfg(feature = "std")]
-pub use with_context::{ContextPath, PathColon, WithPath};
+pub use with_context::{ContextPath, WithPath};
 
 /// A static strategy for formatting a value to a [`fmt::Formatter`].
 ///
