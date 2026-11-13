@@ -51,7 +51,7 @@ fn main() {
 
     println!();
     println!("=== Joined (deep one-line) ===");
-    println!("{}", all.joined());
+    println!("{}", all.one_line());
 
     println!();
     println!("=== ASCII connectors, no header ===");

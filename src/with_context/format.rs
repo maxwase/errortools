@@ -8,12 +8,6 @@ use crate::{Format, separator::ColonSpace};
 
 use super::WithContext;
 
-/// Convenience alias for [`WithContext`] with the [`PathColon`] strategy.
-/// Use this when your context is a path and you want it rendered via `Path::display`
-/// without needing to wrap it in [`DisplayPath`](crate::DisplayPath) or another newtype.
-#[cfg(feature = "std")]
-pub type WithContextPathColon<C, E> = WithContext<C, E, PathColon>;
-
 /// [`Format`] extractor that prints the `context` field via `Display`.
 ///
 /// Compose with [`ErrorField`] and a separator to build pair strategies:

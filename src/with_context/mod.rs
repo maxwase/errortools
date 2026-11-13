@@ -14,7 +14,7 @@ mod format;
 
 pub use crate::with_context::format::{Colon, ContextField, ErrorField};
 #[cfg(feature = "std")]
-pub use crate::with_context::format::{ContextPath, PathColon, WithContextPathColon};
+pub use crate::with_context::format::{ContextPath, PathColon};
 
 /// Convenience alias for [`WithContext`] with the default [`PathColon`] strategy.
 #[cfg(feature = "std")]

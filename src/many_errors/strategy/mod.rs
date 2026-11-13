@@ -235,7 +235,7 @@ mod tests {
             e.bullets().to_string(),
             "2 errors:\n  • a: InnerA\n  • b: InnerB"
         );
-        assert_eq!(e.joined().to_string(), "2 errors: a: InnerA; b: InnerB");
+        assert_eq!(e.one_line().to_string(), "2 errors: a: InnerA; b: InnerB");
     }
 
     /// A non-`Display` context (`PathBuf`) renders when `F` knows how to print
@@ -261,7 +261,7 @@ mod tests {
             "2 errors:\n1. a.txt: missing\n2. b.txt: denied"
         );
         assert_eq!(
-            e.joined().to_string(),
+            e.one_line().to_string(),
             "2 errors: a.txt: missing; b.txt: denied"
         );
     }
