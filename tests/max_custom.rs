@@ -135,7 +135,7 @@ fn fully_custom_tree() {
     assert_eq!(rendered, expected);
 
     assert_eq!(
-        outer.joined().to_string(),
+        outer.one_line().to_string(),
         "2 errors: {us-east#3} (2 errors: config ▸ operation failed: fsync « write failed: disk full; network ▸ operation failed: connect « write failed: disk full); startup ▸ operation failed: load « write failed: disk full"
     );
 }
@@ -211,7 +211,7 @@ fn malformed_messages_and_strategies() {
 
     // Manual print: shows the actual garbled layout (run with `--nocapture`).
     println!("--- tree ---\n{rendered}");
-    println!("--- one line ---\n{}", outer.joined());
+    println!("--- one line ---\n{}", outer.one_line());
 
     let expected_tree = "\
 2 errors:
@@ -258,7 +258,7 @@ up
 failed: load\t=> write\tfailed: disk
 \tfull";
 
-    assert_eq!(outer.joined().to_string(), expected_one_line);
+    assert_eq!(outer.one_line().to_string(), expected_one_line);
 }
 
 /// Same malformed fixture through [`List`](errortools::List): foreign content

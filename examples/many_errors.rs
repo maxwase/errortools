@@ -4,13 +4,15 @@
 
 use std::io;
 
-use errortools::many_errors::Ascii;
-use errortools::{Formatted, ManyErrors, many_errors::Tree};
+use errortools::{Ascii, FormattedRef, ManyErrors, Tree};
 
 #[derive(Debug, thiserror::Error)]
 enum DeployError {
-    #[error("Deploy failed")]
-    Failed(#[source] ManyErrors<&'static str, RegionError>),
+    // The aggregate is rendered in the message and is not a `#[source]`:
+    // `ManyErrors::source` is `None`, so a chain walk would stop at the
+    // shallow summary.
+    #[error("Deploy failed:\n{}", .0.tree())]
+    Failed(ManyErrors<&'static str, RegionError>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -51,16 +53,16 @@ fn main() {
     println!("{}", all.bullets());
 
     println!();
-    println!("=== Joined (deep one-line) ===");
-    println!("{}", all.joined());
+    println!("=== One line (deep) ===");
+    println!("{}", all.one_line());
 
     println!();
     println!("=== ASCII connectors, no header ===");
-    println!("{}", Formatted::<_, Tree<Ascii, false>>::new(&all));
+    println!("{}", FormattedRef::<_, Tree<Ascii, false>>::new(&all));
 
-    // Show it as a source in a top-level error
+    // Embed it in a top-level error
     let err = DeployError::Failed(all);
     println!();
-    println!("=== As thiserror source ===");
+    println!("=== Inside a thiserror variant ===");
     println!("{err}");
 }

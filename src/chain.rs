@@ -15,9 +15,10 @@ use core::{error::Error, fmt, marker::PhantomData};
 use derive_where::derive_where;
 
 use crate::{
-    Format, chain,
+    Format,
     connectors::{Connectors, Unicode},
     indent::{Repeat, indented},
+    sources,
 };
 
 /// Per-error source-chain ladder format, drawn with a [`Connectors`] glyph set.
@@ -60,8 +61,8 @@ pub struct Chain<C = Unicode>(PhantomData<fn() -> C>);
 /// instead of spilling flush-left.
 impl<E: Error + ?Sized, C: Connectors> Format<E> for Chain<C> {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // &error: &&E; &&E coerces to &dyn Error via the blanket `impl<T: Error + ?Sized> Error for &T`.
-        for (depth, e) in chain(&error).enumerate() {
+        // `E` may be unsized, so `&E` cannot coerce to `&dyn Error`; `&&E` can.
+        for (depth, e) in sources(&error).enumerate() {
             match depth {
                 0 => write!(f, "{e}")?,
                 n => {
@@ -89,8 +90,9 @@ mod tests {
     use itertools::Itertools;
 
     use crate::{
-        Chain, Format, FormatError, Formatted, chain,
+        Chain, Format, FormatError, Formatted,
         connectors::{Ascii, Connectors, Unicode},
+        sources,
         tests::{Error, Inner},
     };
 
@@ -153,12 +155,13 @@ mod tests {
         struct AsciiChain;
         impl<E: core::error::Error + ?Sized> Format<E> for AsciiChain {
             fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let formatted = chain(&error)
-                    .enumerate()
-                    .format_with("\n", |(depth, e), write| match depth {
+                let formatted = sources(&error).enumerate().format_with(
+                    "\n",
+                    |(depth, e), write| match depth {
                         0 => write(&format_args!("{e}")),
                         n => write(&format_args!("{:width$}|-- {e}", "", width = (n - 1) * 2)),
-                    });
+                    },
+                );
                 write!(f, "{formatted}")
             }
         }

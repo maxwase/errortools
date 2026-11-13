@@ -13,48 +13,58 @@ use core::{error::Error, fmt, iter, marker::PhantomData};
 
 use derive_where::derive_where;
 
-mod add;
 mod chain;
 mod connectors;
+#[cfg(feature = "alloc")]
+mod detached;
 pub mod indent;
 mod main_result;
 #[cfg(feature = "alloc")]
 pub mod many_errors;
 mod oneline;
 #[cfg(feature = "std")]
-pub mod path_display;
+mod path_display;
+pub mod separator;
 mod suggestion;
+mod tuple;
 pub mod with_context;
 
-pub use add::{Add, separator};
 pub use chain::Chain;
 pub use connectors::{Ascii, Connectors, TreeConnectors, Unicode};
-pub use main_result::{DisplaySwapDebug, MainResult, MainResultWithSuggestion, WithSuggestion};
+#[cfg(feature = "alloc")]
+pub use detached::Detached;
+pub use main_result::{
+    DisplaySwapDebug, MainError, MainResult, MainResultWithSuggestion, WithSuggestion,
+};
 #[cfg(feature = "alloc")]
 pub use many_errors::{
-    Bullets, IntoIter, Iter, IterMut, Joined, List, ManyErrors, Node, Subgroup, Tree,
+    Bullets, Joined, List, ManyErrors, Node, Subgroup, Tree,
+    strategy::{ErrorCount, LeafChain},
 };
 pub use oneline::OneLine;
 #[cfg(feature = "std")]
 pub use path_display::DisplayPath;
+pub use separator::{ColonChar, ColonSpace, Empty, Lit, NewLine, Space, Then};
 pub use suggestion::{Suggest, Suggestion};
-pub use with_context::WithContext;
+pub use with_context::{ContextField, ErrorField, ResultExt, WithContext};
+#[cfg(feature = "std")]
+pub use with_context::{ContextPath, WithPath};
 
 /// A static strategy for formatting a value to a [`fmt::Formatter`].
 ///
-/// Usually, the error is traversed via [`chain`] to format the entire source chain,
+/// Usually, the error is traversed via [`sources`] to format the entire source chain,
 /// but this is not required — the strategy can choose to ignore the chain or format
 /// non-error types as well.
 /// For example, an implementation of
 /// [`Format<WithContext<C, E, WithContextFormat>>`] can format the context
 /// and error fields of [`WithContext`] with field extractors like
-/// [`ContextField`](crate::with_context::ContextField) and [`ErrorField`](crate::with_context::ErrorField)
+/// [`ContextField`] and [`ErrorField`]
 /// without walking the source chain at all.
 ///
 /// `E` is the value being formatted; each strategy declares its own bounds:
 /// [`OneLine`] and [`Chain`] require `E: Error`, [`Suggestion`] additionally
 /// requires [`Suggest`], and field extractors like
-/// [`ContextField`](crate::with_context::ContextField) require `E` to be a
+/// [`ContextField`] require `E` to be a
 /// specific shape. The trait itself imposes nothing beyond `?Sized` so
 /// strategies can format non-error pairs (e.g. [`WithContext`]).
 ///
@@ -65,7 +75,7 @@ pub use with_context::WithContext;
 /// # `Debug` convention across this crate
 /// Strategy tags carry their configuration only at the type level (in a phantom
 /// `PhantomData<fn() -> _>`), so their `Debug` is hand-written:
-/// - **Pure-strategy types** ([`Chain`], [`Add`], `Tree`, and [`Formatted`])
+/// - **Pure-strategy types** ([`Chain`], [`Then`], `Tree`, and [`Formatted`])
 ///   materialize the phantom marker via [`Default`] and print its configuration
 ///   — these impls bound the marker `…: Debug + Default`, while their
 ///   auto-traits ([`Clone`]/[`Copy`]/[`PartialEq`]/[`Eq`]/[`Hash`]) stay free of
@@ -74,6 +84,23 @@ pub use with_context::WithContext;
 ///   own name and fields, hiding the phantom
 ///   strategy. Thin display adapters (`DisplayPath`) instead stay transparent
 ///   to mirror their target's `Debug`.
+///
+/// # Unsupported pairs
+/// A strategy that has no impl for the value type is a compile error at the
+/// point where the wrapper is displayed:
+/// ```compile_fail,E0277
+/// use errortools::{Formatted, Unicode};
+/// use std::io;
+///
+/// // `Unicode` is a connector set, not a `Format` strategy.
+/// let error = Formatted::<_, Unicode>::new(io::Error::other("boom"));
+/// println!("{error}");
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "the strategy `{Self}` cannot format `{E}`",
+    label = "`{Self}` does not implement `Format<{E}>`",
+    note = "implement `Format<{E}>` for `{Self}`, or pick a strategy that supports this error type"
+)]
 pub trait Format<E: ?Sized> {
     /// Writes `error` and its source chain to `f` using the strategy.
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result;
@@ -98,14 +125,27 @@ impl<T: fmt::Display + ?Sized> Format<T> for AsDisplay {
 ///
 /// The first item is `error` itself; subsequent items come from
 /// [`Error::source`].
-pub fn chain<'a>(error: &'a dyn Error) -> impl Iterator<Item = &'a dyn Error> + 'a {
+///
+/// ```
+/// use errortools::sources;
+/// use std::io;
+///
+/// #[derive(Debug, thiserror::Error)]
+/// #[error("Failed to read config")]
+/// struct ConfigError(#[source] io::Error);
+///
+/// let error = ConfigError(io::Error::other("disk full"));
+/// let messages: Vec<String> = sources(&error).map(ToString::to_string).collect();
+/// assert_eq!(messages, ["Failed to read config", "disk full"]);
+/// ```
+pub fn sources<'a>(error: &'a dyn Error) -> impl Iterator<Item = &'a dyn Error> + 'a {
     iter::successors(Some(error), |e| Error::source(*e))
 }
 
 /// A helper trait to format errors.
 pub trait FormatError {
     /// Formats the error in a single line concatenated by `: `.
-    fn one_line(&self) -> Formatted<&Self, OneLine> {
+    fn one_line(&self) -> FormattedRef<'_, Self, OneLine> {
         self.formatted::<OneLine>()
     }
 
@@ -113,13 +153,13 @@ pub trait FormatError {
     ///
     /// For aggregate many-error rendering (branching tree) see
     /// `ManyErrors::tree` (requires the `alloc` feature).
-    fn chain(&self) -> Formatted<&Self, Chain> {
+    fn chain(&self) -> FormattedRef<'_, Self, Chain> {
         self.formatted::<Chain>()
     }
 
     /// Renders the error's [`Suggestion`] hint. Only the top-level error is
     /// printed; the source chain is not walked.
-    fn suggestion(&self) -> Formatted<&Self, Suggestion>
+    fn suggestion(&self) -> FormattedRef<'_, Self, Suggestion>
     where
         Self: Suggest,
     {
@@ -132,25 +172,53 @@ pub trait FormatError {
     /// render even when they don't implement `Error` provide an unbounded
     /// inherent twin that shadows this method and returns the same wrapper —
     /// see `ManyErrors::formatted` (requires the `alloc` feature).
-    fn formatted<F>(&self) -> Formatted<&Self, F> {
-        Formatted::new(self)
+    fn formatted<F>(&self) -> FormattedRef<'_, Self, F> {
+        FormattedRef::new(self)
+    }
+
+    /// Snapshots the error and its source chain into an owned [`Detached`].
+    ///
+    /// The snapshot keeps only the `Display` text of each level, so it is
+    /// `Send + Sync + 'static + Clone` and renders through any strategy
+    /// exactly like the original.
+    #[cfg(feature = "alloc")]
+    fn detach(&self) -> Detached
+    where
+        Self: Error,
+    {
+        Detached::snapshot(self)
     }
 }
 
 impl<E: Error + ?Sized> FormatError for E {}
 
-/// An error wrapper that uses a static [`Format`] strategy for [`fmt::Display`].
+/// An owning error wrapper that uses a static [`Format`] strategy for [`fmt::Display`].
+///
+/// This is the wrapper behind [`MainResult`]; the borrowing helpers
+/// ([`FormatError::one_line`], [`FormatError::formatted`], …) return
+/// [`FormattedRef`] instead.
 ///
 /// `F` is a type-level tag (never instantiated). The `fn() -> F` inside
 /// [`PhantomData`] avoids drop-check ownership of `F` and makes the wrapper
 /// `Send + Sync` regardless of `F`.
 #[derive_where(Clone, Copy, Default, PartialEq, Eq, Hash; E)]
+#[must_use = "a formatting wrapper does nothing unless displayed"]
 pub struct Formatted<E, F = OneLine>(E, PhantomData<fn() -> F>);
 
 impl<E, F> Formatted<E, F> {
     /// Wraps `error` so its `Display` impl uses the [`Format`] strategy `F`.
     pub const fn new(error: E) -> Self {
         Formatted(error, PhantomData)
+    }
+
+    /// Returns a reference to the wrapped error.
+    pub const fn inner(&self) -> &E {
+        &self.0
+    }
+
+    /// Unwraps the error, discarding the strategy.
+    pub fn into_inner(self) -> E {
+        self.0
     }
 }
 
@@ -166,12 +234,53 @@ impl<E, F: Format<E>> fmt::Display for Formatted<E, F> {
 }
 
 /// Surfaces both the wrapped error and the active strategy (materialized via
-/// [`Default`], like [`Chain`]/[`Add`]/`Tree`) rather than printing
+/// [`Default`], like [`Chain`]/[`Then`]/`Tree`) rather than printing
 /// `Formatted(.., PhantomData)`. The `F: Debug + Default` bound applies to this
 /// `Debug` impl only — the auto-trait impls above stay free of any `F` bound.
 impl<E: fmt::Debug, F: fmt::Debug + Default> fmt::Debug for Formatted<E, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Formatted")
+            .field("error", &self.0)
+            .field("format", &F::default())
+            .finish()
+    }
+}
+
+/// A borrowing error wrapper that uses a static [`Format`] strategy for
+/// [`fmt::Display`] — the by-reference twin of [`Formatted`].
+///
+/// Returned by the borrowing helpers ([`FormatError::one_line`],
+/// [`FormatError::chain`], [`FormatError::formatted`], `ManyErrors::tree`, …).
+/// It borrows `E` rather than storing a `&E` by value, so its `Display` needs
+/// only `F: Format<E>` (never `F: Format<&E>`) and `E` may be unsized, such as
+/// `dyn Error`.
+///
+/// `F` is a type-level tag, exactly as in [`Formatted`].
+#[derive_where(Clone, Copy)]
+#[derive_where(PartialEq, Eq, Hash; E)]
+#[must_use = "a formatting wrapper does nothing unless displayed"]
+pub struct FormattedRef<'a, E: ?Sized, F = OneLine>(&'a E, PhantomData<fn() -> F>);
+
+impl<'a, E: ?Sized, F> FormattedRef<'a, E, F> {
+    /// Borrows `error` so its `Display` impl uses the [`Format`] strategy `F`.
+    pub const fn new(error: &'a E) -> Self {
+        FormattedRef(error, PhantomData)
+    }
+}
+
+/// Renders the borrowed value via the strategy `F`; the only requirement is
+/// `F: Format<E>`, as for [`Formatted`].
+impl<E: ?Sized, F: Format<E>> fmt::Display for FormattedRef<'_, E, F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        F::fmt(self.0, f)
+    }
+}
+
+/// Same `{ error, format }` shape as [`Formatted`]'s `Debug`, under the name
+/// `FormattedRef`; the strategy is materialized via [`Default`].
+impl<E: fmt::Debug + ?Sized, F: fmt::Debug + Default> fmt::Debug for FormattedRef<'_, E, F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FormattedRef")
             .field("error", &self.0)
             .field("format", &F::default())
             .finish()

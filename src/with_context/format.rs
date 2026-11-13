@@ -4,28 +4,14 @@ use core::fmt::{self, Display, Formatter};
 #[cfg(feature = "std")]
 use std::path::Path;
 
-#[allow(unused_imports)] // referenced from doc links
-use crate::add::separator::{ColonSpace, WithSep};
-use crate::{Format, add::separator::WithColonSpace};
+use crate::{Format, separator::ColonSpace};
 
 use super::WithContext;
-
-/// Convenience alias for [`WithContext`] with the default [`Colon`] strategy.
-///
-/// Use this when you don't need a custom format and want type inference on
-/// [`WithContext::new`] to work with a default strategy without a turbofish.
-pub type WithContextColon<C, E> = WithContext<C, E, Colon>;
-
-/// Convenience alias for [`WithContext`] with the [`PathColon`] strategy.
-/// Use this when your context is a path and you want it rendered via `Path::display`
-/// without needing to wrap it in [`DisplayPath`](crate::DisplayPath) or another newtype.
-#[cfg(feature = "std")]
-pub type WithContextPathColon<C, E> = WithContext<C, E, PathColon>;
 
 /// [`Format`] extractor that prints the `context` field via `Display`.
 ///
 /// Compose with [`ErrorField`] and a separator to build pair strategies:
-/// [`WithSep<ContextField, ColonSpace, ErrorField>`](WithSep) is exactly [`Colon`].
+/// `(ContextField, ColonSpace, ErrorField)` is exactly [`Colon`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ContextField;
 
@@ -70,20 +56,20 @@ impl<P: AsRef<Path>, E, WithContextFormat> Format<WithContext<P, E, WithContextF
 /// Default pair strategy: writes `"{context}: {error}"` for any pair of
 /// `Display` values.
 ///
-/// Equivalent to [`WithColonSpace<ContextField, ErrorField>`](WithColonSpace).
-pub type Colon = WithColonSpace<ContextField, ErrorField>;
+/// A tuple strategy: [`ContextField`], then [`ColonSpace`], then [`ErrorField`].
+pub type Colon = (ContextField, ColonSpace, ErrorField);
 
 /// Path-aware pair strategy: writes `"{path}: {error}"` where `path` is
 /// rendered via [`Path::display`].
 ///
-/// Equivalent to [`WithColonSpace<ContextPath, ErrorField>`](WithColonSpace).
+/// A tuple strategy: [`ContextPath`], then [`ColonSpace`], then [`ErrorField`].
 #[cfg(feature = "std")]
-pub type PathColon = WithColonSpace<ContextPath, ErrorField>;
+pub type PathColon = (ContextPath, ColonSpace, ErrorField);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{WithContext, separator::WithSpace, tests::Inner};
+    use crate::{WithContext, separator::Space, tests::Inner};
     #[cfg(feature = "std")]
     use std::io;
 
@@ -107,7 +93,7 @@ mod tests {
     /// Compose a custom delimiter without writing a new Format impl.
     #[test]
     fn test_composed_separator() {
-        type SpacePair = WithSpace<ContextField, ErrorField>;
+        type SpacePair = (ContextField, Space, ErrorField);
 
         let w = WithContext::<_, _, SpacePair>::new("ctx", Inner::A);
         assert_eq!(w.to_string(), "ctx InnerA");

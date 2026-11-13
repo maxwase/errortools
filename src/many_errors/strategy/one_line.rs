@@ -182,20 +182,20 @@ mod tests {
     #[test]
     fn test_joined_empty() {
         let e = ManyErrors::<&str, Inner>::new();
-        assert_eq!(e.joined().to_string(), "no errors");
+        assert_eq!(e.one_line().to_string(), "no errors");
     }
 
     #[test]
     fn test_joined_single_leaf_no_header() {
         let mut e = ManyErrors::<&str, Inner>::new();
         e.push("ctx", Inner::A);
-        assert_eq!(e.joined().to_string(), "ctx: InnerA");
+        assert_eq!(e.one_line().to_string(), "ctx: InnerA");
     }
 
     #[test]
     fn test_joined_two_leaves() {
         assert_eq!(
-            two_leaves().joined().to_string(),
+            two_leaves().one_line().to_string(),
             "2 errors: a: InnerA; b: InnerB"
         );
     }
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn test_joined_walks_source_chain() {
         assert_eq!(
-            with_chain().joined().to_string(),
+            with_chain().one_line().to_string(),
             "2 errors: a: mid: InnerA; b: mid: InnerB"
         );
     }
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn test_joined_nested_group() {
         assert_eq!(
-            nested().joined().to_string(),
+            nested().one_line().to_string(),
             "2 errors: leaf: InnerA; region (2 errors: x: InnerA; y: InnerB)"
         );
     }
@@ -223,14 +223,14 @@ mod tests {
         inner.push("x", Inner::A);
         let mut outer = ManyErrors::<&str, Inner>::new();
         outer.push_group("g", inner);
-        assert_eq!(outer.joined().to_string(), "g (x: InnerA)");
+        assert_eq!(outer.one_line().to_string(), "g (x: InnerA)");
     }
 
     #[test]
     fn test_joined_empty_group() {
         let mut outer = ManyErrors::<&str, Inner>::new();
         outer.push_group("g", ManyErrors::new());
-        assert_eq!(outer.joined().to_string(), "g (no errors)");
+        assert_eq!(outer.one_line().to_string(), "g (no errors)");
     }
 
     // --- Summary (shallow, the default Display) ---

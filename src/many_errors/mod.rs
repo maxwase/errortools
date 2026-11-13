@@ -19,7 +19,6 @@ mod iter;
 mod node;
 pub mod strategy;
 
-pub use crate::connectors::{Ascii, Connectors, TreeConnectors, Unicode};
 pub use iter::{IntoIter, Iter, IterMut};
 pub use node::{Node, Subgroup};
 pub use strategy::{Bullets, Joined, List, Tree};
@@ -34,34 +33,35 @@ pub use strategy::{Bullets, Joined, List, Tree};
 /// source chains). Source-walking shapes — [`Tree`], [`List`], [`Bullets`],
 /// [`Joined`] — are available via the inherent helpers
 /// [`tree`](ManyErrors::tree), [`list`](ManyErrors::list),
-/// [`bullets`](ManyErrors::bullets), [`joined`](ManyErrors::joined), or via
-/// [`FormatError::formatted`](crate::FormatError::formatted) for full generic
-/// control (e.g. `Tree<Ascii, false>`).
+/// [`bullets`](ManyErrors::bullets), [`one_line`](ManyErrors::one_line), or
+/// via [`formatted`](ManyErrors::formatted) for full generic control (e.g.
+/// `Tree<Ascii, false>`).
 ///
-/// # ⚠ Warning: `one_line` / `chain` do NOT walk the aggregate
+/// # ⚠ Warning: the `FormatError` trait methods do NOT walk the aggregate
 ///
 /// **[`FormatError::one_line`](crate::FormatError::one_line) and
 /// [`FormatError::chain`](crate::FormatError::chain) walk [`Error::source`],
-/// which is always `None` on a `ManyErrors`.** They will silently render
-/// only the shallow `Display` summary — the individual errors and their own
-/// source chains are invisible to them.
+/// which is always `None` on a `ManyErrors`.** Through the trait (a generic
+/// `E: Error` or a `dyn Error`) they render only the shallow `Display`
+/// summary — the individual errors and their own source chains are invisible
+/// to them.
 ///
-/// To print the full aggregate with per-error source chains, use one of the
-/// dedicated aggregate renderers:
+/// On a concrete `ManyErrors` the inherent methods of the same names win at
+/// the call site and render the aggregate deeply:
 ///
 /// ```
 /// # use errortools::ManyErrors;
 /// # let errs: ManyErrors<&str, std::io::Error> = ManyErrors::default();
-/// // Flat: "ctx: err1\nctx: err2\n…"
-/// println!("{}", errs.joined());
+/// // One line: "2 errors: ctx: err1; ctx: err2"
+/// println!("{}", errs.one_line());
 ///
-/// // Hierarchical tree (walks each leaf's Error::source chain too):
-/// println!("{}", errs.tree());
+/// // Hierarchical tree (walks each leaf's Error::source chain too);
+/// // `chain()` is the same rendering as `tree()`:
+/// println!("{}", errs.chain());
 /// ```
 ///
-/// If you need the generic [`FormatError`](crate::FormatError) API (e.g.\ to
-/// pick `Tree<Ascii, false>` at call-site), use
-/// [`formatted`](ManyErrors::formatted) — **not** `one_line` / `chain`.
+/// To pick another shape or non-default generics (e.g.\ `Tree<Ascii, false>`)
+/// use [`formatted`](ManyErrors::formatted).
 ///
 /// # Embedding in an error enum
 ///
@@ -110,7 +110,7 @@ pub use strategy::{Bullets, Joined, List, Tree};
 ///   double-render and break the layout.
 /// - **Whole layout** — for full control over label, separators, and nesting,
 ///   implement [`Format<ManyErrors<…>>`](crate::Format) for your own marker
-///   (exactly like [`Tree`]/[`List`]) plus a one-line ref forwarder, and render
+///   (exactly like [`Tree`]/[`List`]) and render
 ///   via [`formatted`](ManyErrors::formatted):
 ///
 /// ```
@@ -132,16 +132,6 @@ pub use strategy::{Bullets, Joined, List, Tree};
 ///     }
 /// }
 ///
-/// // The ref forwarder lets `Formatted<&ManyErrors<…>, Dashed>` render too.
-/// impl<T: ?Sized> Format<&T> for Dashed
-/// where
-///     Dashed: Format<T>,
-/// {
-///     fn fmt(errors: &&T, f: &mut Formatter<'_>) -> fmt::Result {
-///         <Self as Format<T>>::fmt(*errors, f)
-///     }
-/// }
-///
 /// let mut errs = ManyErrors::<&str, std::io::Error>::new();
 /// errs.push("config", std::io::Error::other("missing"));
 /// errs.push("network", std::io::Error::other("refused"));
@@ -158,8 +148,8 @@ pub use strategy::{Bullets, Joined, List, Tree};
 /// Rendering itself bounds neither `C` nor `GC`: leaves go through `F`, group
 /// labels through `GF`, and those strategies decide what each context must
 /// implement (the default [`Colon`]/[`AsDisplay`] need
-/// [`Display`](core::fmt::Display); a path context works with
-/// [`PathColon`](crate::with_context::PathColon) and no `Display` at all).
+/// [`Display`]; a path context works with
+/// `PathColon` (requires `std`) and no `Display` at all).
 /// Only putting a `ManyErrors` in an [`Error`] *position* (e.g. as a
 /// `#[source]`) additionally requires `C: Debug` and `GC: Debug`, because
 /// [`Error`] has `Debug` as a supertrait and the bound propagates through the
@@ -346,33 +336,12 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
         }
     }
 
-    /// Returns `Some(())` if no errors were recorded, `None` otherwise.
-    ///
-    /// Mirrors [`Result::ok`]: discards the errors and signals whether the
-    /// operation succeeded. For the inverse (keeping the errors) use
-    /// [`err`](Self::err); to turn into a `Result` with a success value use
-    /// [`into_result`](Self::into_result).
-    ///
-    /// # Example
-    /// ```
-    /// use errortools::ManyErrors;
-    ///
-    /// let ok = ManyErrors::<&str, std::io::Error>::new();
-    /// assert_eq!(ok.ok(), Some(()));
-    ///
-    /// let mut errs = ManyErrors::<&str, std::io::Error>::new();
-    /// errs.push("step", std::io::Error::other("fail"));
-    /// assert_eq!(errs.ok(), None);
-    /// ```
-    pub fn ok(self) -> Option<()> {
-        matches!(self, Self::None).then_some(())
-    }
-
     /// Returns `Some(self)` if errors were recorded, `None` if empty.
     ///
     /// Mirrors [`Result::err`]: preserves the errors and discards the success
     /// signal. Useful when you want to handle errors only when present, without
-    /// needing a success value (compare [`into_result`](Self::into_result)).
+    /// needing a success value (compare [`into_result`](Self::into_result));
+    /// to only test for success use [`is_empty`](Self::is_empty).
     ///
     /// # Example
     /// ```
@@ -395,9 +364,9 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// Transforms every leaf error by applying `f`, returning a new
     /// `ManyErrors` with the same context and group structure.
     ///
-    /// Mirrors [`Result::map_err`]. Format strategies are reset to defaults
-    /// for the new error type. Group contexts (`GC`) are left unchanged; to
-    /// map those, use [`map_context`](Self::map_context) after (or before) this.
+    /// Mirrors [`Result::map_err`]. The leaf and group-label strategies (`F`,
+    /// `GF`) and the group contexts (`GC`) are kept; to change the strategies
+    /// use [`with_formats`](Self::with_formats).
     ///
     /// # Example
     /// ```
@@ -409,7 +378,7 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// let mapped = errs.map_err(|n| n.to_string());
     /// assert_eq!(mapped.len(), 2);
     /// ```
-    pub fn map_err<E2>(self, mut f: impl FnMut(E) -> E2) -> ManyErrors<C, E2, GC> {
+    pub fn map_err<E2>(self, mut f: impl FnMut(E) -> E2) -> ManyErrors<C, E2, GC, F, GF> {
         map_err_many(self, &mut f)
     }
 
@@ -417,8 +386,8 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// `ManyErrors` with the same error and group-context structure.
     ///
     /// Mirrors [`Result::map`] (the "non-error" half of the pair). Only leaf
-    /// contexts (`C`) are mapped; group labels (`GC`) are unchanged. Format
-    /// strategies are reset to defaults for the new context type.
+    /// contexts (`C`) are mapped; group labels (`GC`) and the strategies (`F`,
+    /// `GF`) are kept.
     ///
     /// # Example
     /// ```
@@ -429,8 +398,42 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// let mapped = errs.map_context(|ctx| format!("step:{ctx}"));
     /// assert_eq!(mapped.len(), 1);
     /// ```
-    pub fn map_context<C2>(self, mut f: impl FnMut(C) -> C2) -> ManyErrors<C2, E, GC> {
+    pub fn map_context<C2>(self, mut f: impl FnMut(C) -> C2) -> ManyErrors<C2, E, GC, F, GF> {
         map_context_many(self, &mut f)
+    }
+
+    /// Splits `(context, result)` pairs into all the `Ok` values, in order,
+    /// or the aggregate of every failure.
+    ///
+    /// Returns `Ok` only when nothing failed (an empty input gives an empty
+    /// `Vec`). The whole input is consumed either way, so no failure is
+    /// dropped. Fits the output of `futures::future::join_all` or a drained
+    /// `tokio::task::JoinSet`, tagged with whatever identifies each task.
+    ///
+    /// # Example
+    /// ```
+    /// use errortools::ManyErrors;
+    ///
+    /// let parse = |s: &'static str| (s, s.parse::<u8>());
+    ///
+    /// let values = ManyErrors::<_, _>::collect_results(["1", "2"].map(parse));
+    /// assert_eq!(values.unwrap(), [1, 2]);
+    ///
+    /// let errs = ManyErrors::<_, _>::collect_results(["1", "x", "999"].map(parse)).unwrap_err();
+    /// assert_eq!(errs.len(), 2);
+    /// ```
+    pub fn collect_results<T>(
+        results: impl IntoIterator<Item = (C, Result<T, E>)>,
+    ) -> Result<Vec<T>, Self> {
+        let mut values = Vec::new();
+        let mut errors = Self::None;
+        for (context, result) in results {
+            match result {
+                Ok(value) => values.push(value),
+                Err(error) => errors.push(context, error),
+            }
+        }
+        errors.into_result(values)
     }
 
     /// Switches the leaf strategy `F` and group-label strategy `GF` without
@@ -456,18 +459,18 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
 
 impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// Renders as a branching Unicode tree with a count header, walking each leaf's source chain.
-    pub fn tree(&self) -> crate::Formatted<&Self, Tree> {
-        crate::Formatted::new(self)
+    pub fn tree(&self) -> crate::FormattedRef<'_, Self, Tree> {
+        crate::FormattedRef::new(self)
     }
 
-    /// Renders as a dotted numbered list (`1.  1.1.  1.2.  2.`).
-    pub fn list(&self) -> crate::Formatted<&Self, List> {
-        crate::Formatted::new(self)
+    /// Renders as a numbered list. Nested groups are indented and restart at `1.`.
+    pub fn list(&self) -> crate::FormattedRef<'_, Self, List> {
+        crate::FormattedRef::new(self)
     }
 
     /// Renders as a bulleted list with `•` markers.
-    pub fn bullets(&self) -> crate::Formatted<&Self, Bullets> {
-        crate::Formatted::new(self)
+    pub fn bullets(&self) -> crate::FormattedRef<'_, Self, Bullets> {
+        crate::FormattedRef::new(self)
     }
 
     /// Renders on a single line: `;`-separated siblings, parens around groups,
@@ -481,16 +484,40 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     /// wins at the call site and produces a meaningful aggregate rendering
     /// instead. The trait method remains reachable as
     /// `FormatError::one_line(&errs)` if the `OneLine` behavior is needed.
-    pub fn one_line(&self) -> crate::Formatted<&Self, Joined> {
-        crate::Formatted::new(self)
+    pub fn one_line(&self) -> crate::FormattedRef<'_, Self, Joined> {
+        crate::FormattedRef::new(self)
     }
 
-    /// Renders on a single line: `;`-separated siblings, parens around groups.
+    /// Renders as a branching Unicode tree, exactly like [`tree`](Self::tree).
     ///
-    /// Alias for [`one_line`](Self::one_line); prefer that name for
-    /// consistency with [`FormatError`](crate::FormatError).
-    pub fn joined(&self) -> crate::Formatted<&Self, Joined> {
-        crate::Formatted::new(self)
+    /// # Shadowing [`FormatError::chain`](crate::FormatError::chain)
+    ///
+    /// The trait method uses [`Chain`](crate::Chain), which walks
+    /// [`Error::source`] and so would only emit the shallow [`Display`]
+    /// summary. This inherent method wins at the call site and renders the
+    /// aggregate deeply; the trait method remains reachable as
+    /// `FormatError::chain(&errs)`.
+    pub fn chain(&self) -> crate::FormattedRef<'_, Self, Tree> {
+        self.tree()
+    }
+
+    /// Snapshots the whole aggregate into one owned [`Detached`](crate::Detached)
+    /// whose message is the deep [`one_line`](Self::one_line) rendering.
+    ///
+    /// A `Detached` is a linear chain, so the tree structure is flattened into
+    /// that one line. To keep the structure and still get owned, cloneable
+    /// leaves, detach each leaf instead: `errs.map_err(|e| e.detach())`.
+    ///
+    /// # Shadowing [`FormatError::detach`](crate::FormatError::detach)
+    ///
+    /// The trait method walks [`Error::source`], which is always `None` here,
+    /// so it would keep only the shallow [`Display`] summary and drop every
+    /// leaf's source chain. This inherent method wins at the call site.
+    pub fn detach(&self) -> crate::Detached
+    where
+        Joined: Format<Self>,
+    {
+        crate::Detached::new(alloc::string::ToString::to_string(&self.one_line()))
     }
 
     /// Wraps `self` for rendering with an arbitrary aggregate [`Format`]
@@ -510,20 +537,20 @@ impl<C, E, GC, F, GF> ManyErrors<C, E, GC, F, GF> {
     ///
     /// At a call site the inherent method always wins over the trait method,
     /// and when both apply they produce the identical
-    /// [`Formatted`](crate::Formatted) value — so there is nothing to choose:
+    /// [`FormattedRef`](crate::FormattedRef) value — so there is nothing to choose:
     /// `errs.formatted::<F2>()` just also compiles for aggregates that aren't
     /// errors themselves (a non-`Debug` context type, for example). The trait
     /// method remains reachable as `FormatError::formatted(&errs)` if you need
     /// to prove the `Error` bound.
-    pub const fn formatted<F2>(&self) -> crate::Formatted<&Self, F2> {
-        crate::Formatted::new(self)
+    pub const fn formatted<F2>(&self) -> crate::FormattedRef<'_, Self, F2> {
+        crate::FormattedRef::new(self)
     }
 }
 
 /// Renders a shallow, single-line summary: `"N errors: child1; child2; …"`,
 /// each child's own text only (no source chains). This is the Rust-convention
 /// error message; for source-walking shapes use [`tree`](ManyErrors::tree),
-/// [`joined`](ManyErrors::joined), [`list`](ManyErrors::list), or
+/// [`one_line`](ManyErrors::one_line), [`list`](ManyErrors::list), or
 /// [`bullets`](ManyErrors::bullets).
 impl<C, E, GC, F, GF> Display for ManyErrors<C, E, GC, F, GF>
 where
@@ -547,7 +574,7 @@ where
     /// Always `None`: an aggregate of independent sibling errors has no single
     /// linear cause, so it exposes nothing through [`Error::source`]. Inspect
     /// the children directly, or render the full chains via a strategy
-    /// ([`tree`](Self::tree), [`joined`](Self::joined), …).
+    /// ([`tree`](Self::tree), [`one_line`](Self::one_line), …).
     ///
     /// Consequently, a `ManyErrors` buried in another error's source chain
     /// (e.g. as a `#[source]`) renders as one shallow [`Display`] line under
@@ -568,7 +595,7 @@ where
 fn map_err_node<C, E, GC, F, GF, E2>(
     node: Node<C, E, GC, F, GF>,
     f: &mut impl FnMut(E) -> E2,
-) -> Node<C, E2, GC> {
+) -> Node<C, E2, GC, F, GF> {
     match node {
         Node::Leaf(w) => Node::Leaf(WithContext::new(w.context, f(w.error))),
         Node::Group(g) => Node::Group(Subgroup::new(g.context, map_err_many(*g.errors, f))),
@@ -578,7 +605,7 @@ fn map_err_node<C, E, GC, F, GF, E2>(
 fn map_err_many<C, E, GC, F, GF, E2>(
     me: ManyErrors<C, E, GC, F, GF>,
     f: &mut impl FnMut(E) -> E2,
-) -> ManyErrors<C, E2, GC> {
+) -> ManyErrors<C, E2, GC, F, GF> {
     match me {
         ManyErrors::None => ManyErrors::None,
         ManyErrors::One(n) => ManyErrors::One(map_err_node(n, f)),
@@ -595,7 +622,7 @@ fn map_err_many<C, E, GC, F, GF, E2>(
 fn map_context_node<C, E, GC, F, GF, C2>(
     node: Node<C, E, GC, F, GF>,
     f: &mut impl FnMut(C) -> C2,
-) -> Node<C2, E, GC> {
+) -> Node<C2, E, GC, F, GF> {
     match node {
         Node::Leaf(w) => Node::Leaf(WithContext::new(f(w.context), w.error)),
         Node::Group(g) => Node::Group(Subgroup::new(g.context, map_context_many(*g.errors, f))),
@@ -605,7 +632,7 @@ fn map_context_node<C, E, GC, F, GF, C2>(
 fn map_context_many<C, E, GC, F, GF, C2>(
     me: ManyErrors<C, E, GC, F, GF>,
     f: &mut impl FnMut(C) -> C2,
-) -> ManyErrors<C2, E, GC> {
+) -> ManyErrors<C2, E, GC, F, GF> {
     match me {
         ManyErrors::None => ManyErrors::None,
         ManyErrors::One(n) => ManyErrors::One(map_context_node(n, f)),
@@ -637,7 +664,7 @@ impl<C, E, GC, F, GF, T> From<(C, Result<T, E>)> for ManyErrors<C, E, GC, F, GF>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{Inner, Mid};
+    use crate::tests::{Inner, Mid, WcArrow};
 
     // --- push / push_group / variants ---
 
@@ -788,7 +815,7 @@ mod tests {
     #[test]
     fn test_with_formats_none_stays_none() {
         let e = ManyErrors::<&str, Inner>::new();
-        let swapped: ManyErrors<&str, Inner, &str, crate::tests::WcArrow> = e.with_formats();
+        let swapped: ManyErrors<&str, Inner, &str, WcArrow> = e.with_formats();
         assert!(matches!(swapped, ManyErrors::None));
     }
 
@@ -814,6 +841,24 @@ mod tests {
         e.push("a", Inner::A);
         e.push("b", Inner::B);
         assert_eq!(e.to_string(), "2 errors: a: InnerA; b: InnerB");
+    }
+
+    /// The inherent `detach` keeps the leaf source chains; mapping the leaves
+    /// keeps the structure as well.
+    #[test]
+    fn test_detach_keeps_leaf_chains() {
+        let mut e = ManyErrors::<&str, Mid>::new();
+        e.push("a", Mid::Inner(Inner::A));
+        e.push("b", Mid::Inner(Inner::B));
+        let deep = "2 errors: a: mid: InnerA; b: mid: InnerB";
+        assert_eq!(e.one_line().to_string(), deep);
+
+        let detached = e.detach();
+        assert_eq!(detached.message(), deep);
+        assert!(detached.cause().is_none());
+
+        let mapped = e.map_err(|error| crate::FormatError::detach(&error));
+        assert_eq!(mapped.one_line().to_string(), deep);
     }
 
     /// Default Display does not walk a leaf's source chain.
@@ -848,7 +893,6 @@ mod tests {
         let mut e = ManyErrors::<&str, Mid>::new();
         e.push("ctx", Mid::Inner(Inner::A));
         assert_eq!(e.one_line().to_string(), "ctx: mid: InnerA");
-        assert_eq!(e.joined().to_string(), e.one_line().to_string());
     }
 
     /// `one_line()` walks leaf chains; `FormatError::one_line` stops at Display.
@@ -870,20 +914,33 @@ mod tests {
         );
     }
 
-    // --- ok / err ---
-
+    /// `chain()` is the `Tree` rendering; `FormatError::chain` stops at Display.
     #[test]
-    fn test_ok_empty_is_some() {
-        let e = ManyErrors::<&str, Inner>::new();
-        assert_eq!(e.ok(), Some(()));
+    fn test_chain_shadows_format_error_trait() {
+        use crate::FormatError;
+        let mut inner = ManyErrors::<&str, Mid>::new();
+        inner.push("x", Mid::Inner(Inner::A));
+        inner.push("y", Mid::Inner(Inner::B));
+        let mut e = ManyErrors::<&str, Mid>::new();
+        e.push("leaf", Mid::Inner(Inner::A));
+        e.push_group("region", inner);
+
+        let deep = e.chain().to_string();
+        assert_eq!(deep, e.tree().to_string());
+        assert!(
+            deep.contains("InnerB"),
+            "leaf chains must be walked: {deep}"
+        );
+
+        let shallow = FormatError::chain(&e).to_string();
+        assert_eq!(
+            shallow,
+            "2 errors: leaf: mid; region (2 errors: x: mid; y: mid)"
+        );
+        assert_ne!(deep, shallow);
     }
 
-    #[test]
-    fn test_ok_with_errors_is_none() {
-        let mut e = ManyErrors::<&str, Inner>::new();
-        e.push("a", Inner::A);
-        assert_eq!(e.ok(), None);
-    }
+    // --- err ---
 
     #[test]
     fn test_err_empty_is_none() {
@@ -934,7 +991,71 @@ mod tests {
         assert_eq!(mapped.to_string(), "2 errors: leaf: mid; region (x: mid)");
     }
 
+    /// Group-label strategy for the `F`/`GF` preservation tests.
+    struct Bracket;
+    impl<T: Display + ?Sized> Format<T> for Bracket {
+        fn fmt(label: &T, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(f, "[{label}]")
+        }
+    }
+
+    /// A leaf under `WcArrow` and a group labeled through `Bracket`.
+    fn custom_formats() -> ManyErrors<&'static str, Inner, &'static str, WcArrow, Bracket> {
+        let mut inner = ManyErrors::new();
+        inner.push("x", Inner::A);
+        let mut outer = ManyErrors::new();
+        outer.push("leaf", Inner::B);
+        outer.push_group("region", inner);
+        outer
+    }
+
+    #[test]
+    fn test_custom_formats_fixture_is_not_default() {
+        let custom = custom_formats();
+        assert_eq!(
+            custom.to_string(),
+            "2 errors: leaf -> InnerB; [region] (x -> InnerA)"
+        );
+        let default: ManyErrors<&str, Inner> = custom.with_formats();
+        assert_eq!(
+            default.to_string(),
+            "2 errors: leaf: InnerB; region (x: InnerA)"
+        );
+    }
+
+    /// Fails to compile (annotation) and fails the assertion (unannotated
+    /// call) if `map_err` resets `F`/`GF` to the defaults.
+    #[test]
+    fn test_map_err_keeps_formats() {
+        let mapped: ManyErrors<&str, Mid, &str, WcArrow, Bracket> =
+            custom_formats().map_err(Mid::Inner);
+        assert_eq!(
+            mapped.to_string(),
+            "2 errors: leaf -> mid; [region] (x -> mid)"
+        );
+        assert_eq!(
+            custom_formats().map_err(Mid::Inner).to_string(),
+            "2 errors: leaf -> mid; [region] (x -> mid)"
+        );
+    }
+
     // --- map_context ---
+
+    /// Fails to compile (annotation) and fails the assertion (unannotated
+    /// call) if `map_context` resets `F`/`GF` to the defaults.
+    #[test]
+    fn test_map_context_keeps_formats() {
+        let mapped: ManyErrors<String, Inner, &str, WcArrow, Bracket> =
+            custom_formats().map_context(|ctx| ctx.to_uppercase());
+        assert_eq!(
+            mapped.to_string(),
+            "2 errors: LEAF -> InnerB; [region] (X -> InnerA)"
+        );
+        assert_eq!(
+            custom_formats().map_context(str::len).to_string(),
+            "2 errors: 4 -> InnerB; [region] (1 -> InnerA)"
+        );
+    }
 
     #[test]
     fn test_map_context_none_stays_none() {
@@ -969,6 +1090,35 @@ mod tests {
             mapped.to_string(),
             "2 errors: LEAF: InnerB; region (X: InnerA)"
         );
+    }
+
+    // --- collect_results ---
+
+    #[test]
+    fn test_collect_results_all_ok_keeps_order() {
+        let results = [("a", Ok::<_, Inner>(1)), ("b", Ok(2)), ("c", Ok(3))];
+        assert_eq!(
+            ManyErrors::<_, _>::collect_results(results),
+            Ok(vec![1, 2, 3])
+        );
+    }
+
+    #[test]
+    fn test_collect_results_some_failing_aggregates_every_failure() {
+        let results = [
+            ("a", Ok(1)),
+            ("b", Err(Inner::A)),
+            ("c", Ok(3)),
+            ("d", Err(Inner::B)),
+        ];
+        let errs = ManyErrors::<_, _>::collect_results(results).unwrap_err();
+        assert_eq!(errs.to_string(), "2 errors: b: InnerA; d: InnerB");
+    }
+
+    #[test]
+    fn test_collect_results_empty_input_is_ok_empty() {
+        let results: [(&str, Result<u8, Inner>); 0] = [];
+        assert_eq!(ManyErrors::<_, _>::collect_results(results), Ok(vec![]));
     }
 
     // --- From<(C, Result<T, E>)> ---

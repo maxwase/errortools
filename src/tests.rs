@@ -87,7 +87,7 @@ impl Suggest for NoHint {}
 pub struct Arrow;
 impl<E: core::error::Error> Format<E> for Arrow {
     fn fmt(error: &E, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", chain(error).format(" -> "))
+        write!(f, "{}", sources(error).format(" -> "))
     }
 }
 
@@ -134,6 +134,8 @@ fn _assert_derive_traits() {
     assert_all::<Formatted<DummyError, OneLine>>();
     assert_all::<Formatted<DummyError, Chain>>();
     assert_all::<DisplaySwapDebug<DummyError>>();
+    assert_all::<MainError<DummyError, OneLine>>();
+    assert_all::<MainError<DummyError, Chain>>();
     assert_all::<OneLine>();
     assert_all::<Chain>();
 
@@ -141,8 +143,15 @@ fn _assert_derive_traits() {
     // compile even though `NoTraits` implements nothing.
     struct NoTraits;
     assert_all::<Formatted<DummyError, NoTraits>>();
+
+    // The borrowing wrapper has no `Default` (nothing to borrow), is equally
+    // `F`-free, and stays `Copy` over an unsized `dyn Error`.
+    fn assert_ref<T: Clone + Copy + PartialEq + Eq + Hash + Send + Sync>() {}
+    assert_ref::<crate::FormattedRef<'static, DummyError, NoTraits>>();
+    fn assert_copy<T: Clone + Copy>() {}
+    assert_copy::<crate::FormattedRef<'static, dyn core::error::Error, NoTraits>>();
     assert_all::<Chain<NoTraits>>();
-    assert_all::<Add<NoTraits, NoTraits>>();
+    assert_all::<separator::Then<NoTraits, NoTraits>>();
     #[cfg(feature = "alloc")]
     assert_all::<Tree<NoTraits, true>>();
 
@@ -326,4 +335,81 @@ fn test_suggest_not_delegated_through_transparent() {
         Error::Three(io::Error::other("x")).suggestion().to_string(),
         "",
     );
+}
+
+/// Compile-time `Send + Sync` checks: the wrappers are thread-safe whenever
+/// their payload is, whatever the strategy marker.
+const _: () = {
+    use crate::{Formatted, FormattedRef, MainError, WithContext};
+
+    /// A strategy marker that is neither `Send` nor `Sync`. The wrappers hold
+    /// it as `PhantomData<fn() -> F>`, so it must not affect their auto traits.
+    #[allow(dead_code)]
+    struct NotSend(*const ());
+
+    const fn assert_send_sync<T: Send + Sync + ?Sized>() {}
+
+    assert_send_sync::<Formatted<io::Error>>();
+    assert_send_sync::<Formatted<io::Error, NotSend>>();
+    assert_send_sync::<FormattedRef<'static, io::Error>>();
+    assert_send_sync::<FormattedRef<'static, dyn core::error::Error + Send + Sync>>();
+    assert_send_sync::<FormattedRef<'static, io::Error, NotSend>>();
+    assert_send_sync::<MainError<io::Error>>();
+    assert_send_sync::<MainError<io::Error, NotSend>>();
+    assert_send_sync::<WithContext<&'static str, io::Error>>();
+    assert_send_sync::<WithContext<&'static str, io::Error, NotSend>>();
+
+    #[cfg(feature = "alloc")]
+    {
+        use crate::{Detached, ManyErrors};
+
+        assert_send_sync::<ManyErrors<&'static str, io::Error>>();
+        assert_send_sync::<ManyErrors<&'static str, io::Error, &'static str, NotSend, NotSend>>();
+        assert_send_sync::<Detached>();
+    }
+};
+
+#[test]
+fn test_formatted_accessors() {
+    const WRAPPED: crate::Formatted<u8> = crate::Formatted::new(7);
+    assert_eq!(*WRAPPED.inner(), 7);
+    assert_eq!(WRAPPED.into_inner(), 7);
+}
+
+#[test]
+fn test_display_swap_debug_accessors() {
+    const WRAPPED: crate::DisplaySwapDebug<u8> = crate::DisplaySwapDebug::new(7);
+    assert_eq!(*WRAPPED.inner(), 7);
+    assert_eq!(WRAPPED.into_inner(), 7);
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn test_display_path_accessors() {
+    const WRAPPED: crate::DisplayPath<&str> = crate::DisplayPath::new("a/b");
+    assert_eq!(*WRAPPED.inner(), "a/b");
+    assert_eq!(WRAPPED.to_string(), "a/b");
+    assert_eq!(WRAPPED.into_inner(), "a/b");
+}
+
+/// `Suggestion` needs only `Suggest`, so it renders a value that is not an error.
+#[test]
+fn test_suggestion_on_non_error() {
+    struct Hint;
+    impl crate::Suggest for Hint {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("try again")
+        }
+    }
+
+    let rendered = crate::Formatted::<_, crate::Suggestion>::new(Hint).to_string();
+    assert_eq!(rendered, "try again");
+}
+
+/// `sources` yields the error itself, then each source in order.
+#[test]
+fn test_sources_order() {
+    let error = Error::Two(Inner::A);
+    let rendered: Vec<String> = sources(&error).map(ToString::to_string).collect();
+    assert_eq!(rendered, ["Two", "InnerA"]);
 }

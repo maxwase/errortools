@@ -11,14 +11,14 @@
 use core::{error::Error, fmt};
 use std::{io, marker::PhantomData};
 
-use errortools::{Format, FormatError, chain};
+use errortools::{Format, FormatError, sources};
 use itertools::Itertools;
 
 struct Arrow;
 
 impl<E: Error + ?Sized> Format<E> for Arrow {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", chain(&error).format(" -> "))
+        write!(f, "{}", sources(&error).format(" -> "))
     }
 }
 
@@ -29,7 +29,7 @@ struct Json<F>(PhantomData<fn() -> F>);
 impl<E, F> Format<E> for Json<F>
 where
     E: std::error::Error + ?Sized,
-    F: for<'a> Format<&'a E>,
+    F: Format<E>,
 {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{{ \"message\": \"{}\" }}", error.formatted::<F>())

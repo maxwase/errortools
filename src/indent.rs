@@ -1,8 +1,8 @@
 //! Multiline re-indentation for layout-owning strategies.
 //!
 //! Foreign content (error messages, custom strategies) may embed `\n`. A
-//! strategy that owns a 2-D layout ([`Tree`](crate::Tree),
-//! [`List`](crate::List), [`Bullets`](crate::Bullets), [`Chain`](crate::Chain))
+//! strategy that owns a 2-D layout (`Tree`, `List`, `Bullets`,
+//! [`Chain`](crate::Chain))
 //! writes such content through [`indented`] so every physical line stays under
 //! the strategy's own column instead of spilling flush-left. Streams
 //! line-by-line — no allocation, available without `alloc`.

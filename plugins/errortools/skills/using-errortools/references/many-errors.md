@@ -1,176 +1,155 @@
-# Aggregating many failures: `ManyErrors`
+# Aggregating failures: `ManyErrors`
 
-Read this when an operation shouldn't stop at the first failure (validating a
-whole config, deploying to every region, parsing a batch) and you want to
-report all of them, grouped and readable, instead of just the first. (Requires
-the `alloc` feature, on by default.)
+Read this when building an aggregate by hand, grouping failures, picking a
+render shape, or writing a custom shape. The default pattern
+(`collect_results` plus a variant that renders the tree) is in `SKILL.md`.
+Needs the `alloc` feature.
 
-`ManyErrors<C, E>` is a context-tagged collection arranged as a rose tree. It
-costs nothing until it has to: `None` while empty, one inline slot for the first
-error, a `Vec` only once a second arrives.
+`ManyErrors<C, E, GC = C, F = Colon, GF = AsDisplay>` is a tree of nodes: a
+leaf is a `WithContext<C, E, F>`, a group is a label `GC` over a nested
+`ManyErrors`. `F` renders leaves, `GF` renders group labels. It allocates only
+when a second error arrives.
 
-## Building it
+## Building
 
-```rust
-use errortools::ManyErrors;
-
-let mut errs = ManyErrors::new();
-errs.push("eu-west-1", RegionError::Refused);   // (context, error) leaf
-errs.push("us-east-1", RegionError::Refused);
-
-errs.into_result(())?; // Ok(()) if empty, Err(ManyErrors) otherwise
-```
-
-| Method | Effect |
+| Call | Effect |
 |---|---|
-| `new()` / `is_empty()` / `len()` | construct / inspect |
-| `push(context, error)` | append a leaf, promoting `None → One → Many` |
-| `push_group(label, sub)` | append a named nested `ManyErrors` |
-| `push_node(node)` | append anything `Into<Node>`: a `(C, E)` pair, `WithContext`, `Subgroup`, or `Node` |
-| `into_result(ok)` | `Ok(ok)` if empty, else `Err(self)` |
-| `with_formats::<F, GF>()` | swap leaf + group-label strategies |
-
-You can also collect straight from an iterator of `(context, error)` pairs or
-`WithContext` values. `ManyErrors` implements `FromIterator` and `Extend`,
-which composes with itertools' `partition_result`:
+| `ManyErrors::collect_results(pairs)` | `(C, Result<T, E>)` pairs into `Result<Vec<T>, Self>`; consumes all input |
+| `pairs.collect::<ManyErrors<_, _>>()` | from `(C, E)`, `(C, Result<T, E>)`, `WithContext`, or `Node` items; also `extend` |
+| `push(c, e)`, `push_result(c, result)`, `push_some(c, option)` | append one leaf (the latter two only on `Err` / `Some`) |
+| `push_group(label, sub)`, `sub.into_group(label)` | nest an aggregate under a label |
+| `a + b`, `a += (c, result)` | merge two aggregates, or add a leaf |
+| `into_result(ok)` | `Ok(ok)` when empty, else `Err(self)` |
+| `err()` | `None` when empty, else `Some(self)` |
+| `is_empty()`, `len()` | `len` counts direct children |
+| `map_err(f)`, `map_context(f)` | convert every leaf error or context; `F` and `GF` are kept |
+| `with_formats::<F, GF>()` | switch leaf and label strategies |
 
 ```rust
-let errs: ManyErrors<&str, io::Error> = nodes.into_iter().collect();
+fn check_ports(ports: &[&'static str]) -> Result<(), Error> {
+    ports
+        .iter()
+        .map(|&p| (p, p.parse::<u16>()))
+        .collect::<ManyErrors<_, _>>()
+        .into_result(())
+        .map_err(Error::Ports)
+}
 ```
 
-Group related failures with `push_group`, and the shapes nest:
+Grouping:
 
 ```rust
-use errortools::ManyErrors;
-
 let mut east = ManyErrors::new();
-east.push("i-0a1", RegionError::Refused);
-east.push("i-0b2", RegionError::Refused);
+east.push("i-0b2", DeployError::Upload(io::Error::other("disk full")));
+east.push("i-0c3", DeployError::Refused);
 
-let mut all: ManyErrors<&str, RegionError> = ManyErrors::new();
+let mut all: ManyErrors<&str, DeployError> = ManyErrors::new();
 all.push_group("us-east-1", east);
-all.push("eu-west-1", RegionError::Refused);
+all.push("eu-west-1", DeployError::Refused);
 ```
 
-## Rendering shapes
+For `Path` / `PathBuf` contexts set the leaf strategy to `PathColon` and give
+groups a `Display` label type, because the label defaults to `C` and paths have
+no `Display`: `ManyErrors<PathBuf, io::Error, &str, PathColon>`.
 
-The shapes are **inherent helpers** (no turbofish) and they walk each leaf's
-source chain:
+## Rendering
 
-```rust
-println!("{}", all.tree());      // Unicode branching tree, with count header
-println!("{}", all.list());      // numbered outline (1.  1.1.  2.)
-println!("{}", all.bullets());   // • bulleted
-println!("{}", all.joined());    // ;-separated single line, parens around groups
-```
+The inherent helpers borrow and walk each leaf's source chain. For `all` above:
 
-`tree()`:
+`all.tree()` (and `all.chain()`, the same rendering):
 
 ```text
 2 errors:
 ├─ us-east-1 (2 errors):
-│  ├─ i-0a1: connection refused
-│  └─ i-0b2: connection refused
-└─ eu-west-1: connection refused
+│  ├─ i-0b2: Failed to upload artifact
+│  │  └─ disk full
+│  └─ i-0c3: Connection refused
+└─ eu-west-1: Connection refused
 ```
 
-The default `Display` (`{all}`) is deliberately a **shallow one-line summary**
-(each error's own text, no source chains), so it's safe to embed in a message or
-log, following the Rust convention that an error's `Display` is its own message:
+`all.list()` (`all.bullets()` is the same outline with `•` markers):
 
 ```text
-2 errors: us-east-1 (2 errors: i-0a1: connection refused; i-0b2: connection refused); eu-west-1: connection refused
+2 errors:
+1. us-east-1 (2 errors):
+    1. i-0b2: Failed to upload artifact: disk full
+    2. i-0c3: Connection refused
+2. eu-west-1: Connection refused
 ```
 
-For full control (ASCII connectors, no count header) go through the inherent
-`formatted` with explicit generics. `Tree<Conn, HEADER>`:
+`all.one_line()`:
 
-```rust
-use errortools::{Formatted, many_errors::{Ascii, Tree}};
-println!("{}", Formatted::<_, Tree<Ascii, false>>::new(&all)); // ASCII, no header
-println!("{}", all.formatted::<Tree<Ascii, false>>());          // same, shorter
+```text
+2 errors: us-east-1 (2 errors: i-0b2: Failed to upload artifact: disk full; i-0c3: Connection refused); eu-west-1: Connection refused
 ```
 
-## Two `formatted` methods: use the inherent one
+`{all}` (`Display`) is the same line without the leaves' sources (no
+`: disk full`), following the convention that `Display` is an error's own
+message. An empty aggregate renders `no errors`.
 
-`errs.formatted::<F>()` resolves to an **inherent** method that is completely
-unbounded (and `const`): wrapping always compiles; whether the combination can
-print is decided by `F`'s own `Format` bounds at the `Display` call site.
+Other parameters go through `formatted`: `all.formatted::<Tree<Ascii, false>>()`
+uses ASCII connectors and drops the count header.
 
-The `FormatError::formatted` *trait* method also exists, but calling it requires
-`ManyErrors: Error`, which drags `C: Debug` and `GC: Debug` onto your context
-types (the `Error` supertrait) even though no strategy needs them to render. At a
-call site the inherent method wins automatically and produces the identical
-value, so just write `errs.formatted::<F>()`. A `PathBuf` context with
-`PathColon` then renders in every shape even though `PathBuf` has no `Display`.
+## Where the deep rendering is lost
 
-The same rule runs through the whole path: no shape demands anything from a
-context directly. Leaves print through the leaf strategy `F`, group labels
-through the label strategy `GF`, and those decide the bounds.
+`ManyErrors` implements `Error` with `source()` always `None`, since siblings
+have no single cause. Consequences:
 
-## Children are errors too
+- Through `dyn Error`, a generic `E: Error`, or as a `#[source]` of another
+  error, only the shallow `Display` line is visible. The inherent `one_line()`
+  and `chain()` shadow the `FormatError` ones only on a concrete `ManyErrors`.
+- So do not mark the field `#[source]` or `#[from]`. Render it in the variant
+  message: `#[error("Deploy failed:\n{}", .0.tree())]` for terminals,
+  `#[error("Bad ports: {}", .0.one_line())]` for one-line logs.
+- To nest one aggregate inside another, use `push_group`, not a source chain.
 
-```rust
-use errortools::FormatError;
+Using it in an `Error` position also requires `C: Debug` and `GC: Debug`.
+Rendering alone does not.
 
-// Iterate and log each child, or stick one in a #[source].
-for node in &errs {
-    tracing::warn!("{}", node.one_line());
-}
-```
+## Children
 
-## Footgun: `one_line()` / `chain()` on an aggregate
+Iterating `&errs` yields `&Node`; `Node::Leaf(w)` exposes `w.context` and
+`w.error`, `Node::Group(g)` exposes `g.context` and `g.errors`. Each node is an
+`Error`, so `node.one_line()` works. The iterator types are
+`errortools::many_errors::{Iter, IterMut, IntoIter}`.
 
-A `ManyErrors` *is* an `Error`, so `errs.one_line()` and `errs.chain()` compile,
-but they print only the shallow summary, because `Error::source()` is always
-`None` (an aggregate has no single linear cause). The deep versions are
-`joined()` (one line) and `tree()` (multi-line).
+## Custom shapes
 
-Same logic in reverse: a `ManyErrors` buried in another error's `#[source]`
-chain shows up as **one summary line** under `OneLine`/`Chain`, and the walk
-stops there; branching can't be recovered through `dyn Error`. If you want its
-branches rendered, lift it into a `push_group` of an outer `ManyErrors` instead
-of chaining it as a source.
-
-## Custom aggregate shapes
-
-Need your own layout? Implement `Format<ManyErrors<...>>` and match on the public
-`ManyErrors` / `Node` variants, plus a small `&T` ref-forwarder so
-`Formatted<&ManyErrors<...>, _>` works:
+Implement `Format<ManyErrors<..>>` on a unit type and render through
+`errs.formatted::<Shape>()`. Reuse the crate's helpers so the output matches
+the built-ins: `ErrorCount(n)` prints `"N errors"`, `LeafChain(w)` prints a
+leaf with its `": "`-joined sources, `many_errors::strategy::NO_ERRORS` is the
+empty marker, and `indent::indented` re-indents multi-line content.
 
 ```rust
-use core::fmt::{self, Display, Formatter};
-use errortools::{Format, ManyErrors, Node};
+use core::fmt::{self, Formatter};
+use errortools::{ErrorCount, Format, LeafChain, ManyErrors, Node, WithContext};
+use errortools::many_errors::strategy::NO_ERRORS;
 
-struct Dashed;
+struct Arrows;
 
-impl<C: Display, E: Display, GC: Display, F, GF> Format<ManyErrors<C, E, GC, F, GF>> for Dashed {
+impl<C, E, GC, F, GF> Format<ManyErrors<C, E, GC, F, GF>> for Arrows
+where
+    E: core::error::Error,
+    F: Format<WithContext<C, E, F>>,
+{
     fn fmt(errors: &ManyErrors<C, E, GC, F, GF>, f: &mut Formatter<'_>) -> fmt::Result {
-        for node in errors {
+        if errors.is_empty() {
+            return f.write_str(NO_ERRORS);
+        }
+        write!(f, "{} ->", ErrorCount(errors.len()))?;
+        for (i, node) in errors.iter().enumerate() {
+            let sep = if i == 0 { " " } else { "; " };
             match node {
-                Node::Leaf(w) => writeln!(f, "- {}: {}", w.context, w.error)?,
-                Node::Group(g) => writeln!(f, "- {} ({} nested)", g.context, g.errors.len())?,
+                Node::Leaf(w) => write!(f, "{sep}{}", LeafChain(w))?,
+                Node::Group(g) => write!(f, "{sep}{}", ErrorCount(g.errors.len()))?,
             }
         }
         Ok(())
     }
 }
-
-impl<T: ?Sized> Format<&T> for Dashed where Dashed: Format<T> {
-    fn fmt(errors: &&T, f: &mut Formatter<'_>) -> fmt::Result {
-        <Self as Format<T>>::fmt(*errors, f)
-    }
-}
+// all.formatted::<Arrows>(): "2 errors -> 2 errors; eu-west-1: Connection refused"
 ```
 
-To keep output consistent with the built-ins, reuse their public helpers rather
-than reinventing them: `many_errors::strategy::{ErrorCount, LeafChain,
-NO_ERRORS}`, `indent::indented` for re-indenting multiline content, and the
-`impl_ref_format!` macro for the `&T` trampoline. See the `many_errors::strategy`
-module docs for a worked example.
-
-Group labels can differ from leaf contexts via the third parameter
-`ManyErrors<C, E, GC>`, but `GC` defaults to `C`, so the common case stays two
-params. Label decoration is a separate lever: the group-label strategy `GF`
-(default `AsDisplay`) is label-only and never sees the nested errors; laying
-those out is the aggregate strategy's job.
+To restyle only group labels, set `GF` to a `Format<GC>` strategy; it sees the
+label alone, never the nested errors.

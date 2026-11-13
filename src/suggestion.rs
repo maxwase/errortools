@@ -1,4 +1,4 @@
-use core::{error::Error, fmt};
+use core::fmt;
 
 use crate::Format;
 
@@ -17,6 +17,21 @@ use crate::Format;
 ///
 /// Render via [`FormatError::suggestion`](crate::FormatError::suggestion),
 /// which dispatches through the [`Suggestion`] strategy.
+///
+/// A type without an impl cannot be rendered through [`Suggestion`]:
+/// ```compile_fail,E0277
+/// use errortools::{Formatted, Suggestion};
+/// use std::io;
+///
+/// // `io::Error` does not implement `Suggest`.
+/// let hint = Formatted::<_, Suggestion>::new(io::Error::other("boom"));
+/// println!("{hint}");
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` has no suggestion to render",
+    label = "`{Self}` does not implement `Suggest`",
+    note = "implement `Suggest` for `{Self}`; an empty impl is enough for a type with no hint"
+)]
 pub trait Suggest {
     /// Writes the suggestion text for `self` to `f`. The default writes
     /// nothing.
@@ -36,11 +51,11 @@ impl<T: Suggest + ?Sized> Suggest for &T {
 ///
 /// The source chain is not walked — only the wrapped error's own hint is
 /// printed. Pair with [`FormatError::suggestion`](crate::FormatError::suggestion)
-/// (returns `Formatted<&Self, Suggestion>`).
+/// (returns `FormattedRef<'_, Self, Suggestion>`).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Suggestion;
 
-impl<E: Error + Suggest + ?Sized> Format<E> for Suggestion {
+impl<E: Suggest + ?Sized> Format<E> for Suggestion {
     fn fmt(error: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Suggest::fmt(error, f)
     }
@@ -61,7 +76,7 @@ mod tests {
     use std::io;
 
     use crate::{
-        Add, FormatError,
+        FormatError,
         separator::NewLine,
         tests::{Error, Inner, Mid, NoHint},
     };
@@ -104,11 +119,11 @@ mod tests {
         // materialized strategy tag.
         assert_eq!(
             format!("{:?}", Error::One.suggestion()),
-            "Formatted { error: One, format: Suggestion }"
+            "FormattedRef { error: One, format: Suggestion }"
         );
         assert_eq!(
             format!("{:?}", NoHint.suggestion()),
-            "Formatted { error: NoHint, format: Suggestion }"
+            "FormattedRef { error: NoHint, format: Suggestion }"
         );
     }
 
@@ -123,9 +138,9 @@ mod tests {
             e.suggestion().to_string(),
             "Try passing --help to see available options.",
         );
-        // They can be composed via Add.
+        // They can be composed via a tuple.
         assert_eq!(
-            e.formatted::<Add<crate::OneLine, Add<NewLine, crate::Suggestion>>>()
+            e.formatted::<(crate::OneLine, NewLine, crate::Suggestion)>()
                 .to_string(),
             "One\nTry passing --help to see available options.",
         );

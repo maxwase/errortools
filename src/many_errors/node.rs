@@ -31,6 +31,13 @@ pub struct Subgroup<C, E, GroupContext = C, F = Colon, GroupFormat = AsDisplay> 
     /// The group label.
     pub context: GroupContext,
     /// The boxed nested errors (boxed to break the recursion with [`ManyErrors`]).
+    ///
+    /// Dereference before rendering: on the `Box` itself, `one_line()`,
+    /// `chain()` and `detach()` resolve to the shallow
+    /// [`FormatError`](crate::FormatError) methods, because the trait is
+    /// implemented for `Box<ManyErrors>` and method lookup finds it before the
+    /// deep inherent methods. Write `(*group.errors).one_line()`, or use
+    /// `tree()` / `list()` / `bullets()`, which have no trait twin.
     pub errors: Box<ManyErrors<C, E, GroupContext, F, GroupFormat>>,
 
     /// Grounds the `GroupFormat` label strategy: it otherwise appears only inside the

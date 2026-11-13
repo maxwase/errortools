@@ -204,6 +204,15 @@ impl<C, E, GC, F, GF> FromIterator<(C, E)> for ManyErrors<C, E, GC, F, GF> {
     }
 }
 
+/// `Ok` items are skipped; each `Err` becomes a leaf.
+impl<C, E, GC, F, GF, T> FromIterator<(C, Result<T, E>)> for ManyErrors<C, E, GC, F, GF> {
+    fn from_iter<I: IntoIterator<Item = (C, Result<T, E>)>>(iter: I) -> Self {
+        let mut me = Self::None;
+        me.extend(iter);
+        me
+    }
+}
+
 impl<C, E, GC, F, GF> FromIterator<ControlFlow<WithContext<C, E, F>, WithContext<C, E, F>>>
     for ManyErrors<C, E, GC, F, GF>
 {
@@ -248,6 +257,15 @@ impl<C, E, GC, F, GF> Extend<(C, E)> for ManyErrors<C, E, GC, F, GF> {
     fn extend<I: IntoIterator<Item = (C, E)>>(&mut self, iter: I) {
         for (context, error) in iter {
             self.push(context, error);
+        }
+    }
+}
+
+/// `Ok` items are skipped; each `Err` becomes a leaf.
+impl<C, E, GC, F, GF, T> Extend<(C, Result<T, E>)> for ManyErrors<C, E, GC, F, GF> {
+    fn extend<I: IntoIterator<Item = (C, Result<T, E>)>>(&mut self, iter: I) {
+        for (context, result) in iter {
+            self.push_result(context, result);
         }
     }
 }
@@ -310,6 +328,33 @@ mod tests {
         let errs: ManyErrors<&str, Inner> =
             [("a", Inner::A), ("b", Inner::A)].into_iter().collect();
         assert_eq!(errs.len(), 2);
+    }
+
+    #[test]
+    fn test_collect_from_results_skips_ok() {
+        let errs: ManyErrors<&str, Inner> = [
+            ("a", Ok(1)),
+            ("b", Err(Inner::A)),
+            ("c", Ok(2)),
+            ("d", Err(Inner::B)),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(errs.to_string(), "2 errors: b: InnerA; d: InnerB");
+    }
+
+    #[test]
+    fn test_collect_from_results_all_ok_is_empty() {
+        let errs: ManyErrors<&str, Inner> = [("a", Ok(1)), ("b", Ok(2))].into_iter().collect();
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn test_extend_from_results_skips_ok() {
+        let mut e = ManyErrors::<&str, Inner>::new();
+        e.push("first", Inner::A);
+        e.extend([("a", Ok(())), ("b", Err(Inner::B))]);
+        assert_eq!(e.to_string(), "2 errors: first: InnerA; b: InnerB");
     }
 
     #[test]

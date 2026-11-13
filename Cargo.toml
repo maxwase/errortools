@@ -1,11 +1,10 @@
 [package]
 name = "errortools"
 authors = ["Max Wase <max.vvase@gmail.com>"]
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 description = "Quality of life utilities for error handling in Rust."
 repository = "https://github.com/maxwase/errortools"
-homepage = "https://github.com/maxwase/errortools"
 documentation = "https://docs.rs/errortools"
 license = "MIT"
 readme = "README.md"
@@ -15,16 +14,16 @@ include = ["src/**/*.rs", "examples/**/*.rs", "README.md", "CHANGELOG.md", "LICE
 
 [dependencies]
 derive-where = "1.6.1"
-itertools = { version = "0.15", default-features = false }
 
 [dev-dependencies]
+itertools = "0.15"
 pretty_assertions = "1.4.1"
 thiserror = "2"
 
 [features]
 default = ["std"]
 
-std = ["alloc", "itertools/use_std"]
+std = ["alloc"]
 alloc = []
 
 [[example]]

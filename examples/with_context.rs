@@ -25,7 +25,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use errortools::{MainResult, WithContext, with_context::WithPath};
+use errortools::{MainResult, ResultExt, WithContext, with_context::WithPath};
 
 /// How many times `create_with_retry` will attempt `File::create` before
 /// surfacing the last error.
@@ -62,25 +62,26 @@ fn create_with_retry(
         }
     }
     // Final attempt: surface the error tagged with the attempt number.
-    File::create(path).map_err(|e| WithContext::new(last, e))
+    File::create(path).context(last)
 }
 
 fn write_file(path: &'static Path, contents: &[u8]) -> Result<(), FsError> {
-    // Single map_err: the retry-tagged error gets wrapped with the path and
-    // routed into `FsError::Create` in one closure.
+    // `with_context` builds the owned path only on failure; the variant
+    // constructor pins the `PathColon` strategy of `WithPath`.
     let mut file = create_with_retry(path, RETRY_ATTEMPTS)
-        .map_err(|e| FsError::Create(WithContext::new(path.to_path_buf(), e)))?;
-    // Double map_err: tag with path first, then lift into the enum variant.
+        .with_context(|| path.to_path_buf())
+        .map_err(FsError::Create)?;
+    // `context` tags with the borrowed path, then lift into the enum variant.
     file.write_all(contents)
-        .map_err(|e| WithContext::new(path, e))
+        .context(path)
         .map_err(FsError::Write)?;
     Ok(())
 }
 
 fn main() -> MainResult<AppError> {
     // Parent directory doesn't exist, so every retry of `File::create` fails.
-    // `WithContext::new(attempt, io_err)` tags the final attempt; the outer
-    // `WithContext::new(path, ...)` wraps that with the path; `?` routes the
+    // `.context(attempt)` tags the final attempt; the outer
+    // `.with_context(|| path)` wraps that with the path; `?` routes the
     // result through `FsError::Create` and `AppError::Fs` into `MainResult`.
     write_file(Path::new("no/such/dir/output.txt"), b"hello, errortools\n")
         .map_err(AppError::Fs)?;

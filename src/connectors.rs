@@ -14,6 +14,21 @@
 /// [`Chain`](crate::Chain) renders every node as an only-child, so it only ever
 /// uses [`LAST`](Connectors::LAST) and [`GAP`](Connectors::GAP). Branching
 /// trees pick up the sibling glyphs via the [`TreeConnectors`] supertrait.
+///
+/// `Chain<C>` is a strategy only when `C` is a glyph set:
+/// ```compile_fail,E0277
+/// use errortools::{Chain, FormatError, OneLine};
+/// use std::io;
+///
+/// // `OneLine` is a strategy, not a glyph set.
+/// let error = io::Error::other("boom");
+/// println!("{}", error.formatted::<Chain<OneLine>>());
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a set of chain connectors",
+    label = "`{Self}` does not implement `Connectors`",
+    note = "use `Unicode` or `Ascii`, or implement `Connectors` for `{Self}`"
+)]
 pub trait Connectors {
     /// Prefix for a last (or only) child: `"└─ "` (Unicode).
     const LAST: &'static str;
@@ -23,6 +38,27 @@ pub trait Connectors {
 
 /// The full box-drawing set a branching `Tree` aggregate renderer
 /// needs: the [`Connectors`] pair plus the sibling glyphs for non-last children.
+///
+/// A glyph set that implements only [`Connectors`] can draw a `Chain` but not
+/// a `Tree`:
+#[cfg_attr(feature = "alloc", doc = "```compile_fail,E0277")]
+#[cfg_attr(not(feature = "alloc"), doc = "```ignore")]
+/// use errortools::{Connectors, ManyErrors, Tree};
+///
+/// struct Dots;
+/// impl Connectors for Dots {
+///     const LAST: &'static str = ".. ";
+///     const GAP: &'static str = "   ";
+/// }
+///
+/// let errors = ManyErrors::<&str, std::io::Error>::new();
+/// println!("{}", errors.formatted::<Tree<Dots>>());
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a set of tree connectors",
+    label = "`{Self}` does not implement `TreeConnectors`",
+    note = "use `Unicode` or `Ascii`, or implement `TreeConnectors` (and `Connectors`) for `{Self}`"
+)]
 pub trait TreeConnectors: Connectors {
     /// Prefix for a non-last child: `"├─ "` (Unicode).
     const BRANCH: &'static str;
