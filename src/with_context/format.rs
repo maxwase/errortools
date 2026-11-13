@@ -8,12 +8,6 @@ use crate::{Format, separator::ColonSpace};
 
 use super::WithContext;
 
-/// Convenience alias for [`WithContext`] with the default [`Colon`] strategy.
-///
-/// Use this when you don't need a custom format and want type inference on
-/// [`WithContext::new`] to work with a default strategy without a turbofish.
-pub type WithContextColon<C, E> = WithContext<C, E, Colon>;
-
 /// Convenience alias for [`WithContext`] with the [`PathColon`] strategy.
 /// Use this when your context is a path and you want it rendered via `Path::display`
 /// without needing to wrap it in [`DisplayPath`](crate::DisplayPath) or another newtype.

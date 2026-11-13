@@ -134,6 +134,8 @@ fn _assert_derive_traits() {
     assert_all::<Formatted<DummyError, OneLine>>();
     assert_all::<Formatted<DummyError, Chain>>();
     assert_all::<DisplaySwapDebug<DummyError>>();
+    assert_all::<MainError<DummyError, OneLine>>();
+    assert_all::<MainError<DummyError, Chain>>();
     assert_all::<OneLine>();
     assert_all::<Chain>();
 

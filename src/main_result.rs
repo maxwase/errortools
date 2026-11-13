@@ -1,25 +1,100 @@
-use core::error::Error;
-use core::fmt;
+//! [`MainResult`] and [`MainError`]: returning a formatted error from `main`.
+
+use core::{error::Error, fmt, marker::PhantomData};
+
+use derive_where::derive_where;
 
 use crate::separator::{NewLine, Then};
 
-use super::{Format, Formatted, OneLine};
+use super::{Format, OneLine};
 
-/// A result type that wraps an error with [Formatted] and [DisplaySwapDebug] to output from the `main` function.
+/// A result type for `fn main` whose error is a [`MainError`], rendered via the strategy `F`.
 ///
 /// The format strategy `F` defaults to [`OneLine`]; pass [`Chain`](crate::Chain) or a custom [`Format`]
 /// to change how the error is rendered when `main` returns `Err`.
 /// The success type `T` defaults to `()`; pass `ExitCode` or another type to return from `main`.
-pub type MainResult<E, F = OneLine, T = ()> =
-    core::result::Result<T, DisplaySwapDebug<Formatted<E, F>>>;
+///
+/// `?` converts any error that `E` implements [`From`] for, so a source error
+/// reaches `main` in one step:
+/// ```
+/// use errortools::MainResult;
+/// use std::{fs, io};
+///
+/// #[derive(Debug, thiserror::Error)]
+/// enum AppError {
+///     #[error("Failed to read config")]
+///     Io(#[from] io::Error),
+/// }
+///
+/// fn run() -> MainResult<AppError> {
+///     fs::read_to_string("no/such/dir/config.toml")?; // io::Error -> AppError -> MainError
+///     Ok(())
+/// }
+///
+/// assert!(format!("{:?}", run().unwrap_err()).starts_with("Failed to read config: "));
+/// ```
+pub type MainResult<E, F = OneLine, T = ()> = core::result::Result<T, MainError<E, F>>;
 
-/// A result type that wraps an error with [Formatted] and [DisplaySwapDebug] to output from the `main` function, with an additional suggestion.
+/// A [`MainResult`] that renders the error's [`Suggestion`](crate::Suggestion) after the error itself.
 ///
 /// See [`MainResult`] for details on the type parameters.
 /// The suggestion is rendered after the error, separated by a newline. To customize the separator, use `MainResult` with a custom `Format` that combines the error and suggestion as desired.
 /// If the error has no suggestion (the hint renders empty), the newline is not printed either.
 pub type MainResultWithSuggestion<E, F = OneLine, T = ()> =
-    core::result::Result<T, DisplaySwapDebug<Formatted<E, WithSuggestion<F, NewLine>>>>;
+    core::result::Result<T, MainError<E, WithSuggestion<F>>>;
+
+/// The error half of [`MainResult`]: owns an error `E` and renders it via the
+/// static [`Format`] strategy `F`.
+///
+/// `main` prints a returned error via [`fmt::Debug`], so both `Debug` and
+/// [`fmt::Display`] of this wrapper run `F` over the error and produce the
+/// same human-readable text.
+///
+/// `F` is a type-level tag (never instantiated), as in [`Formatted`](crate::Formatted).
+// Must never implement `core::error::Error` (nor may `Formatted`): the blanket
+// `From<S: Error>` impl below would then overlap with std's `From<T> for T`.
+#[derive_where(Clone, Copy, Default, PartialEq, Eq, Hash; E)]
+pub struct MainError<E, F = OneLine>(E, PhantomData<fn() -> F>);
+
+impl<E, F> MainError<E, F> {
+    /// Wraps `error` so that it is rendered via the [`Format`] strategy `F`.
+    pub const fn new(error: E) -> Self {
+        MainError(error, PhantomData)
+    }
+
+    /// Returns a reference to the wrapped error.
+    pub const fn inner(&self) -> &E {
+        &self.0
+    }
+
+    /// Unwraps the error, discarding the strategy.
+    pub fn into_inner(self) -> E {
+        self.0
+    }
+}
+
+/// Renders the wrapped error via the strategy `F`. This is what `main` prints
+/// when it returns `Err`.
+impl<E, F: Format<E>> fmt::Debug for MainError<E, F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        F::fmt(&self.0, f)
+    }
+}
+
+/// Renders the wrapped error via the strategy `F`, same as [`fmt::Debug`].
+impl<E, F: Format<E>> fmt::Display for MainError<E, F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        F::fmt(&self.0, f)
+    }
+}
+
+/// Lets `?` lift any source error `S` that `E` can be built from, so both
+/// `E` itself and errors one `From` hop away from `E` convert.
+impl<S: Error, E: From<S>, F> From<S> for MainError<E, F> {
+    fn from(source: S) -> Self {
+        MainError::new(E::from(source))
+    }
+}
 
 /// A helper type to combine an error format strategy `F` with a suggestion, separated by `Sep`.
 /// Used by `MainResultWithSuggestion` to render the error and suggestion together.
@@ -36,7 +111,8 @@ pub type WithSuggestion<F = OneLine, Sep = NewLine> = (F, Then<Sep, crate::Sugge
 /// ### Use-case
 /// `main` prints the returned error via [`fmt::Debug`]. Wrapping a `Display`
 /// type in `DisplaySwapDebug` makes that `Debug` print produce the `Display`
-/// output instead — used by [`MainResult`] to render the error chain cleanly.
+/// output instead. [`MainError`] is the purpose-built wrapper for `main`; this
+/// one is a standalone utility for any other `Debug`-printing context.
 #[derive(Copy, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DisplaySwapDebug<T>(T);
 
@@ -70,19 +146,33 @@ impl<D: fmt::Display> fmt::Debug for DisplaySwapDebug<D> {
     }
 }
 
-impl<E: Error, F: Format<E>> From<E> for DisplaySwapDebug<Formatted<E, F>> {
-    fn from(value: E) -> Self {
-        DisplaySwapDebug::new(Formatted::new(value))
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::io;
+
     use super::*;
     use crate::{
+        Formatted,
         separator::Space,
         tests::{Error, Inner},
     };
+
+    /// `From<io::Error>` only; drives the double-hop `?` in [`double_hop`].
+    #[derive(Debug, thiserror::Error)]
+    enum AppError {
+        #[error("Failed to read config")]
+        Io(#[from] io::Error),
+    }
+
+    fn failing_io() -> Result<(), io::Error> {
+        Err(io::Error::new(io::ErrorKind::NotFound, "file missing"))
+    }
+
+    /// `?` goes `io::Error -> AppError -> MainError<AppError>` with no `map_err`.
+    fn double_hop() -> MainResult<AppError> {
+        failing_io()?;
+        Ok(())
+    }
 
     struct Foo;
 
@@ -125,18 +215,34 @@ mod tests {
 
     #[test]
     fn test_main_result() {
-        assert_eq!(
-            DisplaySwapDebug::new(test_return().unwrap_err()).to_string(),
-            "One"
-        );
+        let err = test_return().unwrap_err();
+        // Debug is what `main` prints; Display renders the same text.
+        assert_eq!(format!("{err:?}"), "One");
+        assert_eq!(err.to_string(), "One");
+    }
 
-        assert_eq!(
-            DisplaySwapDebug::new(&DisplaySwapDebug::new(Formatted::<_, OneLine>::new(
-                Error::One
-            )))
-            .to_string(),
-            "One"
-        );
+    #[test]
+    fn test_main_result_double_hop_question_mark() {
+        let err = double_hop().unwrap_err();
+        assert_eq!(format!("{err:?}"), "Failed to read config: file missing");
+        assert!(matches!(err.inner(), AppError::Io(e) if e.kind() == io::ErrorKind::NotFound));
+    }
+
+    #[test]
+    fn test_main_error_accessors() {
+        let err = MainError::<_, OneLine>::new(Error::Two(Inner::A));
+        assert!(matches!(err.inner(), Error::Two(Inner::A)));
+        assert!(matches!(err.into_inner(), Error::Two(Inner::A)));
+    }
+
+    #[test]
+    fn test_main_error_custom_strategy() {
+        fn run() -> MainResult<Error, crate::Chain> {
+            Err(Error::Two(Inner::A))?;
+            Ok(())
+        }
+
+        assert_eq!(format!("{:?}", run().unwrap_err()), "Two\n└─ InnerA");
     }
 
     #[test]
@@ -185,15 +291,15 @@ mod tests {
 
         run(false).unwrap();
         let wrapped = run(true).unwrap_err();
-        // Debug of DisplaySwapDebug forwards to inner Display = error chain + \n + hint.
+        // Debug of MainError runs the strategy = error chain + \n + hint.
         assert_eq!(
             format!("{wrapped:?}"),
             "One\nTry passing --help to see available options."
         );
-        // Display of DisplaySwapDebug = Debug of inner Formatted = error + strategy.
+        // Display renders the same text as Debug.
         assert_eq!(
             wrapped.to_string(),
-            r#"Formatted { error: One, format: (OneLine, Then(Lit("\n"), Suggestion)) }"#
+            "One\nTry passing --help to see available options."
         );
     }
 
@@ -211,7 +317,7 @@ mod tests {
         assert_eq!(main_with_error(false).unwrap(), ExitCode::SUCCESS);
         let wrapped = main_with_error(true).unwrap_err();
         assert_eq!(
-            wrapped.0.to_string(),
+            format!("{wrapped:?}"),
             "One\nTry passing --help to see available options."
         );
     }
@@ -228,6 +334,6 @@ mod tests {
         }
 
         assert_eq!(main_with_error(false).unwrap(), ExitCode::SUCCESS);
-        assert_eq!(main_with_error(true).unwrap_err().0.to_string(), "One");
+        assert_eq!(format!("{:?}", main_with_error(true).unwrap_err()), "One");
     }
 }

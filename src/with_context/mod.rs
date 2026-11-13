@@ -12,7 +12,7 @@ use crate::Format;
 
 mod format;
 
-pub use crate::with_context::format::{Colon, ContextField, ErrorField, WithContextColon};
+pub use crate::with_context::format::{Colon, ContextField, ErrorField};
 #[cfg(feature = "std")]
 pub use crate::with_context::format::{ContextPath, PathColon, WithContextPathColon};
 
@@ -41,12 +41,16 @@ pub type WithPath<C, E> = WithContext<C, E, PathColon>;
 ///
 /// # Example
 /// ```
-/// use errortools::{FormatError, with_context::WithContextColon};
+/// use errortools::{FormatError, ResultExt, WithContext};
 /// use std::io;
 ///
-/// let err = io::Error::new(io::ErrorKind::NotFound, "file missing");
-/// let ctx = WithContextColon::new("path/to/config", err);
-/// assert_eq!(ctx.one_line().to_string(), "path/to/config: file missing");
+/// fn load() -> Result<(), WithContext<&'static str, io::Error>> {
+///     let read = Err(io::Error::new(io::ErrorKind::NotFound, "file missing"));
+///     read.context("path/to/config")
+/// }
+///
+/// let err = load().unwrap_err();
+/// assert_eq!(err.one_line().to_string(), "path/to/config: file missing");
 /// ```
 /// # Custom formatting
 /// There are 2 ways to customize the formatting strategy:
@@ -97,7 +101,8 @@ pub struct WithContext<C, E, WithContextFormat = Colon> {
 impl<C, E, WithContextFormat> WithContext<C, E, WithContextFormat> {
     /// Creates a new [`WithContext`] pairing `context` with `error`.
     ///
-    /// Use [`WithContextColon`] for the default `Colon` strategy and type inference on `new` without a turbofish.
+    /// The strategy is inferred from the expected type. On a `Result`, prefer
+    /// [`ResultExt::context`] over `map_err(|e| WithContext::new(..))`.
     pub const fn new(context: C, error: E) -> Self {
         Self {
             context,
@@ -150,6 +155,44 @@ where
     }
 }
 
+/// Extension methods that tag the error of a [`Result`] with a context value.
+///
+/// The format strategy `F` is never named at the call site: it is inferred
+/// from the `From` target at the `?` site or from the declared return type.
+///
+/// ```
+/// use errortools::{FormatError, ResultExt, WithContext};
+/// use std::{fs, io};
+///
+/// #[derive(Debug, thiserror::Error)]
+/// #[error("Failed to load config")]
+/// struct ConfigError(#[from] WithContext<&'static str, io::Error>);
+///
+/// fn load(path: &'static str) -> Result<String, ConfigError> {
+///     Ok(fs::read_to_string(path).context(path)?)
+/// }
+///
+/// let err = load("no/such/dir/config.toml").unwrap_err();
+/// assert!(err.one_line().to_string().starts_with("Failed to load config: no/such/dir/config.toml: "));
+/// ```
+pub trait ResultExt<T, E> {
+    /// Pairs the error with `context`, yielding a [`WithContext`] error.
+    fn context<C, F>(self, context: C) -> Result<T, WithContext<C, E, F>>;
+
+    /// Like [`context`](ResultExt::context), but builds the context only on `Err`.
+    fn with_context<C, F>(self, f: impl FnOnce() -> C) -> Result<T, WithContext<C, E, F>>;
+}
+
+impl<T, E> ResultExt<T, E> for Result<T, E> {
+    fn context<C, F>(self, context: C) -> Result<T, WithContext<C, E, F>> {
+        self.map_err(|error| WithContext::new(context, error))
+    }
+
+    fn with_context<C, F>(self, f: impl FnOnce() -> C) -> Result<T, WithContext<C, E, F>> {
+        self.map_err(|error| WithContext::new(f(), error))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io;
@@ -173,54 +216,54 @@ mod tests {
     }
 
     /// Realistic use: a function tags an inner error with context via
-    /// `map_err`, then `?` routes it through `#[from]` into the caller's
-    /// error type.
+    /// [`ResultExt::context`], then `?` routes it through `#[from]` into the
+    /// caller's error type.
     /// Most importantly, `WithContextFormat` is inferred from the `From` impl on `Error`.
     fn returning_error() -> Result<(), PropError> {
-        returning_middle().map_err(|e| WithContext::new("context", e))?;
+        returning_middle().context("context")?;
         Ok(())
     }
 
     #[test]
     fn test_new_and_fields() {
-        let w = WithContextColon::new("ctx", Inner::A);
+        let w = WithContext::<_, _, Colon>::new("ctx", Inner::A);
         assert_eq!(w.context, "ctx");
     }
 
     #[test]
     fn test_from_tuple() {
-        let w: WithContextColon<&str, Inner> = ("ctx", Inner::A).into();
+        let w: WithContext<&str, Inner> = ("ctx", Inner::A).into();
         assert_eq!(w.context, "ctx");
     }
 
     #[test]
     fn test_display_default_format() {
-        let w = WithContextColon::new("step 3", Inner::A);
+        let w = WithContext::<_, _, Colon>::new("step 3", Inner::A);
         assert_eq!(w.to_string(), "step 3: InnerA");
     }
 
     #[test]
     fn test_source_skips_inner_error() {
         // Inner::A has no source, so skipping it yields None.
-        let w = WithContextColon::new("ctx", Inner::A);
+        let w = WithContext::<_, _, Colon>::new("ctx", Inner::A);
         assert!(w.source().is_none());
 
         // For Mid::Inner(Inner::A), source must be Inner — not Mid (which Display already shows).
-        let w = WithContextColon::new("ctx", Mid::Inner(Inner::A));
+        let w = WithContext::<_, _, Colon>::new("ctx", Mid::Inner(Inner::A));
         let src = w.source().expect("source must be Some");
         assert_eq!(src.to_string(), "InnerA");
     }
 
     #[test]
     fn test_one_line_walks_full_chain() {
-        let w = WithContextColon::new("ctx", Mid::Inner(Inner::A));
+        let w = WithContext::<_, _, Colon>::new("ctx", Mid::Inner(Inner::A));
         assert_eq!(w.one_line().to_string(), "ctx: mid: InnerA");
     }
 
     #[test]
     fn test_io_error_chain() {
         let io = io::Error::new(io::ErrorKind::NotFound, "file missing");
-        let w = WithContextColon::new("config", io);
+        let w = WithContext::<_, _, Colon>::new("config", io);
         assert_eq!(w.one_line().to_string(), "config: file missing");
     }
 
@@ -237,7 +280,7 @@ mod tests {
         assert_eq!(w.one_line().to_string(), "[ctx] mid: InnerA");
     }
 
-    /// End-to-end: `map_err` wraps an inner error with [`WithContext`], `?`
+    /// End-to-end: `context` wraps an inner error with [`WithContext`], `?`
     /// fires `From<WithContext<_, _, Bracketed>> for PropError` (and pins
     /// `WithContextFormat`), and the full chain comes out via
     /// [`FormatError::one_line`] without any duplication thanks to `source`
@@ -249,6 +292,63 @@ mod tests {
         assert_eq!(
             err.one_line().to_string(),
             "an error happened: [context] mid: InnerA",
+        );
+    }
+
+    /// `.context(path)?` into an enum with several `#[from]` variants: the
+    /// only `From<WithContext<..>>` impl pins `F = PathColon`, no annotation.
+    #[cfg(feature = "std")]
+    #[test]
+    fn test_context_infers_path_strategy_at_question_mark() {
+        use std::path::Path;
+
+        #[derive(Error, Debug)]
+        enum LoadError {
+            #[error("Failed to load config")]
+            Read(#[from] WithPath<&'static Path, io::Error>),
+            #[error("Bad config")]
+            Parse(#[from] Inner),
+        }
+
+        fn load(path: &'static Path) -> Result<(), LoadError> {
+            let read: Result<(), io::Error> =
+                Err(io::Error::new(io::ErrorKind::NotFound, "file missing"));
+            read.context(path)?;
+            Err(Inner::A)?
+        }
+
+        let err = load(Path::new("no/such/dir/config.toml")).expect_err("load must error");
+        assert!(matches!(err, LoadError::Read(_)));
+        assert_eq!(
+            err.one_line().to_string(),
+            "Failed to load config: no/such/dir/config.toml: file missing",
+        );
+    }
+
+    #[test]
+    fn test_context_infers_strategy_from_return_type() {
+        fn run() -> Result<(), WithContext<&'static str, Mid, Bracketed>> {
+            returning_middle().context("ctx")
+        }
+
+        assert_eq!(
+            run().unwrap_err().one_line().to_string(),
+            "[ctx] mid: InnerA"
+        );
+    }
+
+    #[test]
+    fn test_with_context_is_lazy() {
+        fn run(result: Result<u8, Inner>) -> Result<u8, WithContext<&'static str, Inner>> {
+            result.with_context(|| "step 3")
+        }
+
+        let ok: Result<u8, WithContext<&str, Inner>> =
+            Ok::<u8, Inner>(1).with_context(|| unreachable!("context built on Ok"));
+        assert_eq!(ok, Ok(1));
+        assert_eq!(
+            run(Err(Inner::A)).unwrap_err().to_string(),
+            "step 3: InnerA"
         );
     }
 }

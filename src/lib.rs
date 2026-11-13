@@ -29,7 +29,9 @@ pub mod with_context;
 
 pub use chain::Chain;
 pub use connectors::{Ascii, Connectors, TreeConnectors, Unicode};
-pub use main_result::{DisplaySwapDebug, MainResult, MainResultWithSuggestion, WithSuggestion};
+pub use main_result::{
+    DisplaySwapDebug, MainError, MainResult, MainResultWithSuggestion, WithSuggestion,
+};
 #[cfg(feature = "alloc")]
 pub use many_errors::{
     Bullets, IntoIter, Iter, IterMut, Joined, List, ManyErrors, Node, Subgroup, Tree,
@@ -38,7 +40,7 @@ pub use oneline::OneLine;
 #[cfg(feature = "std")]
 pub use path_display::DisplayPath;
 pub use suggestion::{Suggest, Suggestion};
-pub use with_context::WithContext;
+pub use with_context::{ResultExt, WithContext};
 
 /// A static strategy for formatting a value to a [`fmt::Formatter`].
 ///
