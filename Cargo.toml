@@ -12,6 +12,10 @@ keywords = ["error", "main", "thiserror", "format", "chain"]
 categories = ["rust-patterns", "command-line-interface", "no-std"]
 include = ["src/**/*.rs", "examples/**/*.rs", "README.md", "CHANGELOG.md", "LICENSE*"]
 
+[workspace]
+members = [".", "errortools-tonic"]
+resolver = "3"
+
 [dependencies]
 derive-where = "1.6.1"
 
